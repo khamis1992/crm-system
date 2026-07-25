@@ -2,6 +2,22 @@
 
 Operational CRM cloned from the full Zoho CRM web screenshot set (`0.png`–`920.png`), backed by **Supabase** schema `zcrm`.
 
+## Supabase setup (required)
+
+1. Create a Supabase project
+2. Run SQL migrations in order (SQL Editor):
+   - `supabase/migrations/00001_initial_schema.sql`
+   - `supabase/migrations/00002_seed_demo_data.sql` (optional demo data)
+3. **Project Settings → API → Exposed schemas** → add `zcrm`
+4. Enable Email auth
+5. Copy `.env.example` → `.env.local` and set:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=...
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+   ```
+
+Details: [`supabase/README.md`](./supabase/README.md)
+
 ## Run
 
 ```bash
@@ -10,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:3000**
+Open **http://localhost:3000** → Sign up / Sign in
 
 ### Coverage maps
 | URL | Purpose |

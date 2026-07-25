@@ -26,6 +26,36 @@ export default function HomePage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const allWidgets = [
+    "My Jobs Today",
+    "Leads Created",
+    "My Contacts",
+    "Deals Closed",
+    "My Open Tasks",
+    "My Meetings",
+    "Recent Leads",
+    "Open Deals",
+    "Workspace Snapshot",
+  ];
+  const [visibleWidgets, setVisibleWidgets] = useState<string[]>(() => {
+    if (typeof window === "undefined") return allWidgets;
+    try {
+      const s = localStorage.getItem("crm-home-widgets");
+      if (s) return JSON.parse(s) as string[];
+    } catch { /* ignore */ }
+    return allWidgets;
+  });
+
+  function saveWidgets(next: string[]) {
+    setVisibleWidgets(next);
+    try {
+      localStorage.setItem("crm-home-widgets", JSON.stringify(next));
+    } catch { /* ignore */ }
+    setCustomizeOpen(false);
+  }
+
+  const show = (name: string) => visibleWidgets.includes(name);
 
   useEffect(() => {
     (async () => {
@@ -76,25 +106,55 @@ export default function HomePage() {
           <p className="text-xs text-gray-500">Sales dashboard · last 30 days</p>
         </div>
         <div className="flex gap-2">
-          <button className="crm-btn crm-btn-secondary !text-xs">Customize</button>
+          <button className="crm-btn crm-btn-secondary !text-xs" onClick={() => setCustomizeOpen(true)}>
+            Customize
+          </button>
           <Link href="/leads/new" className="crm-btn crm-btn-primary !text-xs">
             <Plus size={14} /> Create Lead
           </Link>
         </div>
       </div>
 
+      {customizeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCustomizeOpen(false)}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-3 font-semibold">Customize Home</h2>
+            <div className="max-h-72 space-y-2 overflow-auto">
+              {allWidgets.map((w) => (
+                <label key={w} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={visibleWidgets.includes(w)}
+                    onChange={() =>
+                      setVisibleWidgets((v) =>
+                        v.includes(w) ? v.filter((x) => x !== w) : [...v, w]
+                      )
+                    }
+                  />
+                  {w}
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="crm-btn crm-btn-secondary" onClick={() => setCustomizeOpen(false)}>Cancel</button>
+              <button className="crm-btn crm-btn-primary" onClick={() => saveWidgets(visibleWidgets)}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {/* My Jobs Today */}
-        <Widget title="My Jobs Today">
+        {show("My Jobs Today") && <Widget title="My Jobs Today">
           <div className="space-y-3 p-4">
             <JobRow label="Calls" count={0} href="/calls" />
             <JobRow label="Tasks" count={tasks.filter((t) => !t.completed).length} href="/tasks" />
             <JobRow label="Meetings" count={meetings.length} href="/meetings" />
           </div>
-        </Widget>
+        </Widget>}
 
         {/* Leads Created */}
-        <Widget title="Leads Created" action={<Link href="/leads" className="text-xs text-[var(--crm-blue)]">View</Link>}>
+        {show("Leads Created") && <Widget title="Leads Created" action={<Link href="/leads" className="text-xs text-[var(--crm-blue)]">View</Link>}>
           <div className="p-3">
             <div className="mb-2 text-2xl font-semibold text-[var(--crm-blue)]">{leads.length}</div>
             <div className="h-40">
@@ -108,10 +168,10 @@ export default function HomePage() {
               </ResponsiveContainer>
             </div>
           </div>
-        </Widget>
+        </Widget>}
 
         {/* Contacts */}
-        <Widget title="My Contacts" action={<Link href="/contacts" className="text-xs text-[var(--crm-blue)]">View</Link>}>
+        {show("My Contacts") && <Widget title="My Contacts" action={<Link href="/contacts" className="text-xs text-[var(--crm-blue)]">View</Link>}>
           <ul className="divide-y divide-gray-100">
             {contacts.slice(0, 5).map((c) => (
               <li key={c.id} className="flex items-center gap-3 px-4 py-2.5">
@@ -128,10 +188,10 @@ export default function HomePage() {
             ))}
             {contacts.length === 0 && <li className="px-4 py-6 text-center text-gray-400">No contacts</li>}
           </ul>
-        </Widget>
+        </Widget>}
 
         {/* Deals Closed */}
-        <Widget title="Deals Closed" action={<Link href="/deals" className="text-xs text-[var(--crm-blue)]">View</Link>}>
+        {show("Deals Closed") && <Widget title="Deals Closed" action={<Link href="/deals" className="text-xs text-[var(--crm-blue)]">View</Link>}>
           <div className="p-4">
             <div className="mb-1 text-2xl font-semibold text-emerald-600">
               {formatMoney(closedWon.reduce((s, d) => s + Number(d.amount || 0), 0))}
@@ -150,10 +210,10 @@ export default function HomePage() {
               </ResponsiveContainer>
             </div>
           </div>
-        </Widget>
+        </Widget>}
 
         {/* Open Tasks */}
-        <Widget title="My Open Tasks" action={<Link href="/tasks" className="text-xs text-[var(--crm-blue)]">View</Link>}>
+        {show("My Open Tasks") && <Widget title="My Open Tasks" action={<Link href="/tasks" className="text-xs text-[var(--crm-blue)]">View</Link>}>
           <ul className="divide-y divide-gray-100">
             {tasks.filter((t) => t.status !== "Completed").slice(0, 6).map((t) => (
               <li key={t.id} className="flex items-start gap-2 px-4 py-2.5">
@@ -169,10 +229,10 @@ export default function HomePage() {
               </li>
             ))}
           </ul>
-        </Widget>
+        </Widget>}
 
         {/* Meetings */}
-        <Widget title="My Meetings" action={<Link href="/meetings" className="text-xs text-[var(--crm-blue)]">View</Link>}>
+        {show("My Meetings") && <Widget title="My Meetings" action={<Link href="/meetings" className="text-xs text-[var(--crm-blue)]">View</Link>}>
           <ul className="divide-y divide-gray-100">
             {meetings.slice(0, 5).map((m) => (
               <li key={m.id} className="px-4 py-2.5">
@@ -185,10 +245,10 @@ export default function HomePage() {
               </li>
             ))}
           </ul>
-        </Widget>
+        </Widget>}
 
         {/* Recent Leads */}
-        <Widget title="Recent Leads" action={<Link href="/leads" className="text-xs text-[var(--crm-blue)]">View All</Link>}>
+        {show("Recent Leads") && <Widget title="Recent Leads" action={<Link href="/leads" className="text-xs text-[var(--crm-blue)]">View All</Link>}>
           <div className="overflow-x-auto">
             <table className="crm-table text-xs">
               <thead>
@@ -213,10 +273,10 @@ export default function HomePage() {
               </tbody>
             </table>
           </div>
-        </Widget>
+        </Widget>}
 
         {/* Pipeline Deals */}
-        <Widget title="Open Deals" action={<Link href="/deals" className="text-xs text-[var(--crm-blue)]">View</Link>}>
+        {show("Open Deals") && <Widget title="Open Deals" action={<Link href="/deals" className="text-xs text-[var(--crm-blue)]">View</Link>}>
           <ul className="divide-y divide-gray-100">
             {pipeline.slice(0, 6).map((d) => (
               <li key={d.id} className="flex items-center justify-between gap-2 px-4 py-2.5">
@@ -230,17 +290,17 @@ export default function HomePage() {
               </li>
             ))}
           </ul>
-        </Widget>
+        </Widget>}
 
         {/* Quick stats */}
-        <Widget title="Workspace Snapshot">
+        {show("Workspace Snapshot") && <Widget title="Workspace Snapshot">
           <div className="grid grid-cols-2 gap-3 p-4">
             <Stat label="Leads" value={leads.length} href="/leads" />
             <Stat label="Contacts" value={contacts.length} href="/contacts" />
             <Stat label="Deals" value={deals.length} href="/deals" />
             <Stat label="Tasks" value={tasks.length} href="/tasks" />
           </div>
-        </Widget>
+        </Widget>}
       </div>
     </div>
   );

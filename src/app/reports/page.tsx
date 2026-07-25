@@ -1,30 +1,233 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { BarChart3, Plus, Folder } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, Plus, Folder, Trash2 } from "lucide-react";
+import { cn, formatMoney } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/ui/Toast";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 
 const FOLDERS = ["Created By Me", "Shared with Me", "Public Reports", "Favourites", "Recent Reports"];
-const REPORTS = [
-  { name: "Leads by Status", folder: "Public Reports", module: "Leads" },
-  { name: "Leads by Source", folder: "Public Reports", module: "Leads" },
-  { name: "Pipeline by Stage", folder: "Public Reports", module: "Deals" },
-  { name: "Closed Deals this Month", folder: "Created By Me", module: "Deals" },
-  { name: "Open Tasks by Priority", folder: "Created By Me", module: "Tasks" },
-  { name: "Cases by Status", folder: "Shared with Me", module: "Cases" },
-  { name: "Contacts by Account", folder: "Public Reports", module: "Contacts" },
-  { name: "Sales Forecast", folder: "Favourites", module: "Forecasts" },
-];
+const MODULE_MAP: Record<string, { table: string; cols: { key: string; label: string }[] }> = {
+  Leads: {
+    table: "leads",
+    cols: [
+      { key: "first_name", label: "First Name" },
+      { key: "last_name", label: "Last Name" },
+      { key: "email", label: "Email" },
+      { key: "company", label: "Company" },
+      { key: "lead_status", label: "Status" },
+      { key: "lead_source", label: "Source" },
+      { key: "lead_owner", label: "Owner" },
+      { key: "created_at", label: "Created Time" },
+    ],
+  },
+  Contacts: {
+    table: "contacts",
+    cols: [
+      { key: "first_name", label: "First Name" },
+      { key: "last_name", label: "Last Name" },
+      { key: "email", label: "Email" },
+      { key: "phone", label: "Phone" },
+      { key: "contact_owner", label: "Owner" },
+      { key: "created_at", label: "Created Time" },
+    ],
+  },
+  Accounts: {
+    table: "accounts",
+    cols: [
+      { key: "account_name", label: "Name" },
+      { key: "industry", label: "Industry" },
+      { key: "phone", label: "Phone" },
+      { key: "account_owner", label: "Owner" },
+      { key: "created_at", label: "Created Time" },
+    ],
+  },
+  Deals: {
+    table: "deals",
+    cols: [
+      { key: "deal_name", label: "Name" },
+      { key: "amount", label: "Amount" },
+      { key: "stage", label: "Status" },
+      { key: "deal_owner", label: "Owner" },
+      { key: "closing_date", label: "Closing Date" },
+      { key: "created_at", label: "Created Time" },
+    ],
+  },
+  Tasks: {
+    table: "tasks",
+    cols: [
+      { key: "subject", label: "Name" },
+      { key: "status", label: "Status" },
+      { key: "priority", label: "Priority" },
+      { key: "owner_name", label: "Owner" },
+      { key: "due_date", label: "Due Date" },
+    ],
+  },
+  Cases: {
+    table: "cases",
+    cols: [
+      { key: "subject", label: "Name" },
+      { key: "status", label: "Status" },
+      { key: "priority", label: "Priority" },
+      { key: "case_origin", label: "Origin" },
+      { key: "created_at", label: "Created Time" },
+    ],
+  },
+};
+
+const COLORS = ["#2c5cc5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+
+type ReportRow = {
+  id: string;
+  name: string;
+  folder: string;
+  module: string;
+  columns: string[];
+  chart_type: string;
+  x_axis: string | null;
+  y_axis: string | null;
+};
 
 export default function ReportsPage() {
+  const { toast } = useToast();
   const [folder, setFolder] = useState("Public Reports");
+  const [reports, setReports] = useState<ReportRow[]>([]);
   const [builder, setBuilder] = useState(false);
   const [module, setModule] = useState("Leads");
-  const [cols, setCols] = useState(["Name", "Email", "Status", "Owner"]);
+  const [reportName, setReportName] = useState("Untitled Report");
+  const [cols, setCols] = useState<string[]>(MODULE_MAP.Leads.cols.map((c) => c.key));
   const [chart, setChart] = useState("Bar");
+  const [xAxis, setXAxis] = useState("lead_status");
+  const [yAxis, setYAxis] = useState("Record Count");
+  const [preview, setPreview] = useState<Record<string, unknown>[]>([]);
+  const [running, setRunning] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const list = REPORTS.filter((r) => folder === "Recent Reports" || r.folder === folder);
+  const loadReports = useCallback(async () => {
+    const { data, error } = await supabase.from("reports").select("*").order("created_at", { ascending: false });
+    if (error) {
+      toast(error.message, "error");
+      return;
+    }
+    setReports(
+      (data || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        folder: r.folder || "Created By Me",
+        module: r.module,
+        columns: Array.isArray(r.columns) ? r.columns : [],
+        chart_type: r.chart_type || "Table",
+        x_axis: r.x_axis,
+        y_axis: r.y_axis,
+      }))
+    );
+  }, [toast]);
+
+  useEffect(() => {
+    loadReports();
+  }, [loadReports]);
+
+  const list = reports.filter((r) => folder === "Recent Reports" || r.folder === folder);
+  const moduleMeta = MODULE_MAP[module] || MODULE_MAP.Leads;
+
+  const chartData = useMemo(() => {
+    if (!preview.length || !xAxis) return [];
+    const map: Record<string, number> = {};
+    for (const row of preview) {
+      const key = String(row[xAxis] ?? "—");
+      if (yAxis === "Amount" && row.amount != null) {
+        map[key] = (map[key] || 0) + Number(row.amount || 0);
+      } else {
+        map[key] = (map[key] || 0) + 1;
+      }
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value }));
+  }, [preview, xAxis, yAxis]);
+
+  async function runReport(modName = module, columnKeys = cols) {
+    const meta = MODULE_MAP[modName] || MODULE_MAP.Leads;
+    setRunning(true);
+    const { data, error } = await supabase.from(meta.table).select("*").order("created_at", { ascending: false }).limit(200);
+    setRunning(false);
+    if (error) {
+      toast(error.message, "error");
+      return;
+    }
+    setPreview((data as Record<string, unknown>[]) || []);
+    setCols(columnKeys.length ? columnKeys : meta.cols.map((c) => c.key));
+    toast(`Report ran · ${(data || []).length} rows`, "success");
+  }
+
+  async function saveReport() {
+    setSaving(true);
+    const payload = {
+      name: reportName || "Untitled Report",
+      folder: "Created By Me",
+      module: module.toLowerCase(),
+      columns: cols,
+      chart_type: chart,
+      x_axis: xAxis,
+      y_axis: yAxis,
+    };
+    // store module display name as used in UI
+    const { error } = await supabase.from("reports").insert({
+      ...payload,
+      module,
+    });
+    setSaving(false);
+    if (error) {
+      toast(error.message, "error");
+      return;
+    }
+    toast("Report saved", "success");
+    setBuilder(false);
+    loadReports();
+  }
+
+  async function deleteReport(id: string) {
+    const { error } = await supabase.from("reports").delete().eq("id", id);
+    if (error) return toast(error.message, "error");
+    toast("Report deleted", "success");
+    loadReports();
+  }
+
+  function openBuilder(r?: ReportRow) {
+    if (r) {
+      const modLabel =
+        Object.keys(MODULE_MAP).find((k) => k.toLowerCase() === r.module.toLowerCase()) ||
+        Object.keys(MODULE_MAP).find((k) => MODULE_MAP[k].table === r.module) ||
+        "Leads";
+      setModule(modLabel);
+      setReportName(r.name);
+      setCols(r.columns.length ? r.columns : MODULE_MAP[modLabel].cols.map((c) => c.key));
+      setChart(r.chart_type || "Bar");
+      setXAxis(r.x_axis || MODULE_MAP[modLabel].cols[0]?.key || "");
+      setYAxis(r.y_axis || "Record Count");
+      runReport(modLabel, r.columns);
+    } else {
+      setModule("Leads");
+      setReportName("Untitled Report");
+      setCols(MODULE_MAP.Leads.cols.map((c) => c.key));
+      setChart("Bar");
+      setXAxis("lead_status");
+      setYAxis("Record Count");
+      setPreview([]);
+    }
+    setBuilder(true);
+  }
+
+  const displayCols = moduleMeta.cols.filter((c) => cols.includes(c.key) || cols.includes(c.label));
 
   return (
     <div className="flex h-full">
@@ -50,7 +253,7 @@ export default function ReportsPage() {
             <h1 className="text-lg font-semibold">Reports</h1>
             <p className="text-xs text-gray-500">{folder}</p>
           </div>
-          <button className="crm-btn crm-btn-primary" onClick={() => setBuilder(true)}>
+          <button className="crm-btn crm-btn-primary" onClick={() => openBuilder()}>
             <Plus size={14} /> Create Report
           </button>
         </div>
@@ -66,19 +269,32 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
+                {list.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-gray-400">
+                      No reports in this folder
+                    </td>
+                  </tr>
+                )}
                 {list.map((r) => (
-                  <tr key={r.name}>
+                  <tr key={r.id}>
                     <td>
-                      <button className="flex items-center gap-2 font-medium text-[var(--crm-blue)]" onClick={() => setBuilder(true)}>
+                      <button
+                        className="flex items-center gap-2 font-medium text-[var(--crm-blue)]"
+                        onClick={() => openBuilder(r)}
+                      >
                         <BarChart3 size={14} /> {r.name}
                       </button>
                     </td>
                     <td>{r.module}</td>
                     <td>{r.folder}</td>
-                    <td>
-                      <Link href={r.module === "Deals" ? "/deals" : r.module === "Leads" ? "/leads" : "/analytics"} className="text-xs text-gray-400">
+                    <td className="flex items-center gap-2">
+                      <button className="text-xs text-[var(--crm-blue)]" onClick={() => openBuilder(r)}>
                         Run
-                      </Link>
+                      </button>
+                      <button className="text-gray-400 hover:text-red-500" onClick={() => deleteReport(r.id)}>
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -91,65 +307,138 @@ export default function ReportsPage() {
       {builder && (
         <div className="fixed inset-0 z-50 flex flex-col bg-white">
           <div className="flex items-center justify-between border-b px-4 py-3">
-            <h2 className="font-semibold">Report Builder</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="font-semibold">Report Builder</h2>
+              <input
+                className="crm-input !w-56 !py-1 text-sm"
+                value={reportName}
+                onChange={(e) => setReportName(e.target.value)}
+              />
+            </div>
             <div className="flex gap-2">
-              <button className="crm-btn crm-btn-secondary" onClick={() => setBuilder(false)}>Cancel</button>
-              <button className="crm-btn crm-btn-secondary">Run</button>
-              <button className="crm-btn crm-btn-primary" onClick={() => setBuilder(false)}>Save</button>
+              <button className="crm-btn crm-btn-secondary" onClick={() => setBuilder(false)}>
+                Cancel
+              </button>
+              <button className="crm-btn crm-btn-secondary" disabled={running} onClick={() => runReport()}>
+                {running ? "Running…" : "Run"}
+              </button>
+              <button className="crm-btn crm-btn-primary" disabled={saving} onClick={saveReport}>
+                {saving ? "Saving…" : "Save"}
+              </button>
             </div>
           </div>
           <div className="grid flex-1 grid-cols-4 overflow-hidden">
-            <div className="border-r p-3 text-xs">
+            <div className="overflow-auto border-r p-3 text-xs">
               <label className="crm-label">Module</label>
-              <select className="crm-input mb-3" value={module} onChange={(e) => setModule(e.target.value)}>
-                {["Leads", "Contacts", "Accounts", "Deals", "Tasks", "Cases"].map((m) => <option key={m}>{m}</option>)}
+              <select
+                className="crm-input mb-3"
+                value={module}
+                onChange={(e) => {
+                  const m = e.target.value;
+                  setModule(m);
+                  setCols(MODULE_MAP[m].cols.map((c) => c.key));
+                  setXAxis(MODULE_MAP[m].cols.find((c) => c.key.includes("status") || c.key === "stage")?.key || MODULE_MAP[m].cols[0].key);
+                }}
+              >
+                {Object.keys(MODULE_MAP).map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
               </select>
               <div className="mb-1 font-semibold">Columns</div>
-              {["Name", "Email", "Phone", "Status", "Owner", "Amount", "Created Time", "Modified Time"].map((c) => (
-                <label key={c} className="mb-1 flex items-center gap-2">
+              {moduleMeta.cols.map((c) => (
+                <label key={c.key} className="mb-1 flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={cols.includes(c)}
-                    onChange={() => setCols(cols.includes(c) ? cols.filter((x) => x !== c) : [...cols, c])}
+                    checked={cols.includes(c.key) || cols.includes(c.label)}
+                    onChange={() =>
+                      setCols((prev) =>
+                        prev.includes(c.key) || prev.includes(c.label)
+                          ? prev.filter((x) => x !== c.key && x !== c.label)
+                          : [...prev, c.key]
+                      )
+                    }
                   />
-                  {c}
+                  {c.label}
                 </label>
               ))}
-              <div className="mb-1 mt-3 font-semibold">Filters</div>
-              <input className="crm-input !py-1" placeholder="Add filter…" />
             </div>
             <div className="col-span-2 overflow-auto p-4">
-              <div className="mb-3 text-sm font-medium">{module} Report Preview</div>
+              <div className="mb-3 text-sm font-medium">
+                {module} Report Preview · {preview.length} rows
+              </div>
               <table className="crm-table text-xs">
                 <thead>
-                  <tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr>
+                  <tr>
+                    {(displayCols.length ? displayCols : moduleMeta.cols.slice(0, 4)).map((c) => (
+                      <th key={c.key}>{c.label}</th>
+                    ))}
+                  </tr>
                 </thead>
                 <tbody>
-                  {[1, 2, 3, 4, 5].map((i) => (
+                  {preview.slice(0, 25).map((row, i) => (
                     <tr key={i}>
-                      {cols.map((c) => (
-                        <td key={c}>{c === "Amount" ? `$${(i * 12).toLocaleString()}000` : `Sample ${c} ${i}`}</td>
+                      {(displayCols.length ? displayCols : moduleMeta.cols.slice(0, 4)).map((c) => (
+                        <td key={c.key}>
+                          {c.key === "amount" ? formatMoney(Number(row[c.key] || 0)) : String(row[c.key] ?? "—")}
+                        </td>
                       ))}
                     </tr>
                   ))}
+                  {!preview.length && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-gray-400">
+                        Click Run to load live data from Supabase
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            <div className="border-l p-3 text-xs">
+            <div className="overflow-auto border-l p-3 text-xs">
               <div className="mb-2 font-semibold">Chart</div>
               <select className="crm-input mb-2" value={chart} onChange={(e) => setChart(e.target.value)}>
-                {["Bar", "Line", "Pie", "Funnel", "Table"].map((c) => <option key={c}>{c}</option>)}
+                {["Bar", "Pie", "Table"].map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
               </select>
               <label className="crm-label">X Axis</label>
-              <select className="crm-input mb-2"><option>Status</option><option>Owner</option></select>
-              <label className="crm-label">Y Axis</label>
-              <select className="crm-input mb-2"><option>Record Count</option><option>Amount</option></select>
-              <div className="mt-4 flex h-40 items-end justify-around rounded border bg-gray-50 p-2">
-                {[40, 70, 55, 90, 30].map((h, i) => (
-                  <div key={i} className="w-6 rounded-t bg-[var(--crm-blue)]" style={{ height: `${h}%` }} />
+              <select className="crm-input mb-2" value={xAxis} onChange={(e) => setXAxis(e.target.value)}>
+                {moduleMeta.cols.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
                 ))}
+              </select>
+              <label className="crm-label">Y Axis</label>
+              <select className="crm-input mb-2" value={yAxis} onChange={(e) => setYAxis(e.target.value)}>
+                <option>Record Count</option>
+                <option>Amount</option>
+              </select>
+              <div className="mt-4 h-48 rounded border bg-gray-50 p-2">
+                {chart !== "Table" && chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    {chart === "Pie" ? (
+                      <PieChart>
+                        <Pie data={chartData} dataKey="value" nameKey="name" outerRadius={70}>
+                          {chartData.map((_, i) => (
+                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    ) : (
+                      <BarChart data={chartData}>
+                        <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+                        <YAxis tick={{ fontSize: 9 }} />
+                        <Tooltip />
+                        <Bar dataKey="value" fill="#2c5cc5" radius={[3, 3, 0, 0]} />
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-gray-400">Run report for chart</div>
+                )}
               </div>
-              <div className="mt-1 text-center text-[10px] text-gray-400">{chart} chart preview</div>
             </div>
           </div>
         </div>

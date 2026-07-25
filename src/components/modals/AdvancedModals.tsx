@@ -127,14 +127,56 @@ export function ExportModal({
 
   function exportFile() {
     const cols = fields.filter((f) => selected.includes(f.key));
-    const header = cols.map((c) => c.label).join(",");
-    const body = rows
-      .map((r) => cols.map((c) => `"${String(r[c.key] ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([header + "\n" + body], { type: "text/csv" });
+    const base = moduleName.toLowerCase().replace(/\s+/g, "-");
+    let content = "";
+    let mime = "text/csv";
+    let ext = "csv";
+
+    if (format === "VCF") {
+      mime = "text/vcard";
+      ext = "vcf";
+      content = rows
+        .map((r) => {
+          const first = String(r.first_name ?? r.deal_name ?? r.account_name ?? r.subject ?? "");
+          const last = String(r.last_name ?? "");
+          const email = String(r.email ?? "");
+          const phone = String(r.phone ?? r.mobile ?? "");
+          const org = String(r.company ?? r.account_name ?? "");
+          return [
+            "BEGIN:VCARD",
+            "VERSION:3.0",
+            `N:${last};${first};;;`,
+            `FN:${[first, last].filter(Boolean).join(" ")}`,
+            org ? `ORG:${org}` : "",
+            email ? `EMAIL:${email}` : "",
+            phone ? `TEL:${phone}` : "",
+            "END:VCARD",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        })
+        .join("\n");
+    } else {
+      const header = cols.map((c) => c.label).join(format === "XLS" ? "\t" : ",");
+      const body = rows
+        .map((r) =>
+          cols
+            .map((c) => {
+              const raw = String(r[c.key] ?? "").replace(/"/g, '""');
+              return format === "XLS" ? raw : `"${raw}"`;
+            })
+            .join(format === "XLS" ? "\t" : ",")
+        )
+        .join("\n");
+      content = header + "\n" + body;
+      mime = format === "XLS" ? "application/vnd.ms-excel" : "text/csv";
+      ext = format === "XLS" ? "xls" : "csv";
+    }
+
+    const blob = new Blob([content], { type: mime });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${moduleName.toLowerCase().replace(/\s+/g, "-")}-export.${format === "XLS" ? "xls" : format === "VCF" ? "vcf" : "csv"}`;
+    a.download = `${base}-export.${ext}`;
     a.click();
     onClose();
   }
@@ -285,6 +327,13 @@ export function CreatePipelineWizard({ open, onClose }: { open: boolean; onClose
             <button
               className="crm-btn crm-btn-primary"
               onClick={async () => {
+                await supabase.from("pipelines").insert({
+                  name,
+                  module: "deals",
+                  is_default: false,
+                  stages,
+                  description: desc,
+                });
                 await supabase.from("activities").insert({
                   activity_type: "pipeline",
                   subject: `Pipeline created: ${name}`,

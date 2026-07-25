@@ -1,0 +1,9 @@
+# Supabase local config (optional). Project uses remote Supabase + zcrm schema.
+
+[api]
+enabled = true
+schemas = ["public", "zcrm"]
+extra_search_path = ["public", "zcrm", "extensions"]
+
+[db]
+major_version = 15

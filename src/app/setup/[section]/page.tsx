@@ -1,10 +1,12 @@
 "use client";
 
-import { use } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { LEAD_STATUSES, DEAL_STAGES } from "@/lib/supabase";
+import { LEAD_STATUSES, DEAL_STAGES, supabase } from "@/lib/supabase";
 import { MODULES } from "@/lib/modules";
+import { useToast } from "@/components/ui/Toast";
+import { Modal } from "@/components/ui/Modal";
 
 const titles: Record<string, string> = {
   "modules-fields": "Modules and Fields",
@@ -136,16 +138,74 @@ function StagesAdmin() {
 }
 
 function PipelinesAdmin() {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<{ id: string; name: string; module: string; is_default: boolean; stages: unknown[] }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("pipelines").select("*").order("created_at", { ascending: false });
+    if (error) toast(error.message, "error");
+    setRows(
+      (data || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        module: p.module,
+        is_default: !!p.is_default,
+        stages: Array.isArray(p.stages) ? p.stages : [],
+      }))
+    );
+  }, [toast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function create() {
+    if (!name.trim()) return toast("Name required", "error");
+    const { error } = await supabase.from("pipelines").insert({
+      name,
+      module: "deals",
+      is_default: rows.length === 0,
+      stages: DEAL_STAGES.map((s, i) => ({ name: s, prob: Math.min(100, (i + 1) * 12) })),
+    });
+    if (error) return toast(error.message, "error");
+    toast("Pipeline created", "success");
+    setOpen(false);
+    setName("");
+    load();
+  }
+
   return (
-    <Card title="Deal Pipelines" action={<button className="crm-btn crm-btn-primary !text-xs">New Pipeline</button>}>
-      <table className="crm-table">
-        <thead><tr><th>Pipeline</th><th>Module</th><th>Stages</th><th>Default</th></tr></thead>
-        <tbody>
-          <tr><td className="font-medium text-[var(--crm-blue)]">Standard</td><td>Deals</td><td>{DEAL_STAGES.length}</td><td>Yes</td></tr>
-          <tr><td className="font-medium text-[var(--crm-blue)]">Enterprise Sales</td><td>Deals</td><td>6</td><td>No</td></tr>
-        </tbody>
-      </table>
-    </Card>
+    <>
+      <Card title="Deal Pipelines" action={<button className="crm-btn crm-btn-primary !text-xs" onClick={() => setOpen(true)}>New Pipeline</button>}>
+        <table className="crm-table">
+          <thead><tr><th>Pipeline</th><th>Module</th><th>Stages</th><th>Default</th></tr></thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={4} className="py-6 text-center text-gray-400">No pipelines — create one or run migration seed</td></tr>
+            )}
+            {rows.map((p) => (
+              <tr key={p.id}>
+                <td className="font-medium text-[var(--crm-blue)]">{p.name}</td>
+                <td>{p.module}</td>
+                <td>{p.stages.length}</td>
+                <td>{p.is_default ? "Yes" : "No"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      <Modal open={open} onClose={() => setOpen(false)} title="New Pipeline" width="md" footer={
+        <>
+          <button className="crm-btn crm-btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+          <button className="crm-btn crm-btn-primary" onClick={create}>Create</button>
+        </>
+      }>
+        <label className="crm-label">Pipeline Name</label>
+        <input className="crm-input" value={name} onChange={(e) => setName(e.target.value)} />
+      </Modal>
+    </>
   );
 }
 

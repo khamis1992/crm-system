@@ -38,9 +38,17 @@ export function ComposeEmailModal({
     await supabase.from("activities").insert({
       activity_type: "email",
       subject: form.subject || "Email sent",
-      body: `To: ${form.to}\n\n${form.body}`,
+      body: `To: ${form.to}\nCc: ${form.cc}\nBcc: ${form.bcc}\n\n${form.body}`,
       related_to_type: "email",
       owner_name: "Demo User",
+    });
+    await supabase.from("email_threads").insert({
+      subject: form.subject || "Email sent",
+      from_email: form.from,
+      to_email: form.to,
+      preview: form.body?.slice(0, 200) || "",
+      folder: "Sent",
+      is_read: true,
     });
     if (form.followUp) {
       await supabase.from("tasks").insert({
@@ -510,16 +518,162 @@ export function ChangeOwnerModal({
   );
 }
 
+function parseCsv(text: string): { headers: string[]; rows: string[][] } {
+  const lines: string[][] = [];
+  let row: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (inQuotes) {
+      if (ch === '"' && next === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(cur.trim());
+      cur = "";
+    } else if (ch === "\n" || (ch === "\r" && next === "\n")) {
+      row.push(cur.trim());
+      if (row.some((c) => c !== "")) lines.push(row);
+      row = [];
+      cur = "";
+      if (ch === "\r") i++;
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur || row.length) {
+    row.push(cur.trim());
+    if (row.some((c) => c !== "")) lines.push(row);
+  }
+  if (!lines.length) return { headers: [], rows: [] };
+  const headers = lines[0].map((h) => h.replace(/^\uFEFF/, ""));
+  return { headers, rows: lines.slice(1) };
+}
+
+function guessFieldKey(header: string, fields: { key: string; label: string }[]): string {
+  const h = header.toLowerCase().replace(/[_\s]+/g, "");
+  const byLabel = fields.find((f) => f.label.toLowerCase().replace(/[_\s]+/g, "") === h);
+  if (byLabel) return byLabel.key;
+  const byKey = fields.find((f) => f.key.toLowerCase().replace(/[_\s]+/g, "") === h);
+  return byKey?.key || "";
+}
+
 /* ───────── Import Wizard ───────── */
-export function ImportWizardModal({ open, onClose, moduleName }: { open: boolean; onClose: () => void; moduleName: string }) {
+export function ImportWizardModal({
+  open,
+  onClose,
+  moduleName,
+  table,
+  fields = [],
+}: {
+  open: boolean;
+  onClose: () => void;
+  moduleName: string;
+  table?: string;
+  fields?: { key: string; label: string; type?: string }[];
+}) {
   const [step, setStep] = useState(1);
   const [fileName, setFileName] = useState("");
   const [dup, setDup] = useState("skip");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<string[][]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [importing, setImporting] = useState(false);
+  const [resultMsg, setResultMsg] = useState("");
 
   function reset() {
     setStep(1);
     setFileName("");
+    setHeaders([]);
+    setCsvRows([]);
+    setMapping({});
+    setResultMsg("");
+    setImporting(false);
     onClose();
+  }
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    setFileName(file.name);
+    const text = await file.text();
+    const parsed = parseCsv(text);
+    setHeaders(parsed.headers);
+    setCsvRows(parsed.rows);
+    const map: Record<string, string> = {};
+    for (const h of parsed.headers) {
+      map[h] = guessFieldKey(h, fields);
+    }
+    setMapping(map);
+  }
+
+  async function finishImport() {
+    if (!table) {
+      await supabase.from("activities").insert({
+        activity_type: "import",
+        subject: `Import ${moduleName}`,
+        body: `File: ${fileName}, rows: ${csvRows.length}`,
+        related_to_type: "job",
+      });
+      reset();
+      return;
+    }
+    setImporting(true);
+    const payloads = csvRows.map((row) => {
+      const obj: Record<string, unknown> = {};
+      headers.forEach((h, i) => {
+        const key = mapping[h];
+        if (!key || key === "-none-") return;
+        let val: unknown = row[i] ?? "";
+        if (val === "") val = null;
+        const meta = fields.find((f) => f.key === key);
+        if (meta?.type === "number" || meta?.type === "money") val = val != null ? Number(val) : null;
+        if (meta?.type === "checkbox") val = String(val).toLowerCase() === "true" || String(val) === "1" || String(val).toLowerCase() === "yes";
+        obj[key] = val;
+      });
+      return obj;
+    }).filter((o) => Object.keys(o).length > 0);
+
+    let inserted = 0;
+    let skipped = 0;
+    const chunk = 50;
+    for (let i = 0; i < payloads.length; i += chunk) {
+      const batch = payloads.slice(i, i + chunk);
+      if (dup === "skip") {
+        const { data, error } = await supabase.from(table).insert(batch).select("id");
+        if (error) {
+          for (const row of batch) {
+            const { error: e2 } = await supabase.from(table).insert(row);
+            if (e2) skipped++;
+            else inserted++;
+          }
+        } else {
+          inserted += data?.length || batch.length;
+        }
+      } else {
+        const { data, error } = await supabase.from(table).insert(batch).select("id");
+        if (error) skipped += batch.length;
+        else inserted += data?.length || batch.length;
+      }
+    }
+
+    await supabase.from("activities").insert({
+      activity_type: "import",
+      subject: `Import ${moduleName}`,
+      body: `File: ${fileName}, inserted: ${inserted}, skipped: ${skipped}, duplicate handling: ${dup}`,
+      related_to_type: "job",
+    });
+    setResultMsg(`Imported ${inserted} row(s)${skipped ? `, skipped ${skipped}` : ""}.`);
+    setImporting(false);
+    setTimeout(reset, 1200);
   }
 
   return (
@@ -535,49 +689,54 @@ export function ImportWizardModal({ open, onClose, moduleName }: { open: boolean
           {step < 3 ? (
             <button className="crm-btn crm-btn-primary" disabled={step === 1 && !fileName} onClick={() => setStep(step + 1)}>Next</button>
           ) : (
-            <button className="crm-btn crm-btn-primary" onClick={async () => {
-              await supabase.from("activities").insert({
-                activity_type: "import",
-                subject: `Import ${moduleName}`,
-                body: `File: ${fileName}, duplicate handling: ${dup}`,
-                related_to_type: "job",
-              });
-              reset();
-            }}>Finish Import</button>
+            <button className="crm-btn crm-btn-primary" disabled={importing || !csvRows.length} onClick={finishImport}>
+              {importing ? "Importing…" : "Finish Import"}
+            </button>
           )}
         </>
       }
     >
       {step === 1 && (
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">Upload a CSV or XLSX file to import {moduleName}.</p>
+          <p className="text-sm text-gray-600">Upload a CSV file to import {moduleName}.</p>
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-12">
             <input
               type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={(e) => setFileName(e.target.files?.[0]?.name || "")}
+              accept=".csv,text/csv"
+              onChange={(e) => onFile(e.target.files?.[0])}
               className="text-sm"
             />
-            {fileName && <p className="mt-3 text-sm font-medium text-[var(--crm-blue)]">{fileName}</p>}
+            {fileName && (
+              <p className="mt-3 text-sm font-medium text-[var(--crm-blue)]">
+                {fileName} · {csvRows.length} data row(s)
+              </p>
+            )}
           </div>
-          <div className="text-xs text-gray-400">Supported: CSV, XLS, XLSX · Max 25MB · UTF-8 recommended</div>
+          <div className="text-xs text-gray-400">Supported: CSV · UTF-8 recommended · First row = headers</div>
         </div>
       )}
       {step === 2 && (
         <div className="space-y-3">
-          <p className="text-sm font-medium">Map columns</p>
+          <p className="text-sm font-medium">Map columns ({headers.length} found)</p>
           <table className="crm-table text-xs">
             <thead>
-              <tr><th>File Column</th><th>CRM Field</th></tr>
+              <tr><th>File Column</th><th>Sample</th><th>CRM Field</th></tr>
             </thead>
             <tbody>
-              {["First Name", "Last Name", "Email", "Company", "Phone", "Lead Source"].map((c) => (
+              {headers.map((c, hi) => (
                 <tr key={c}>
                   <td>{c}</td>
+                  <td className="max-w-[120px] truncate text-gray-400">{csvRows[0]?.[hi] || "—"}</td>
                   <td>
-                    <select className="crm-input !py-1">
-                      <option>{c}</option>
-                      <option>-None-</option>
+                    <select
+                      className="crm-input !py-1"
+                      value={mapping[c] || ""}
+                      onChange={(e) => setMapping({ ...mapping, [c]: e.target.value })}
+                    >
+                      <option value="">-None-</option>
+                      {fields.map((f) => (
+                        <option key={f.key} value={f.key}>{f.label}</option>
+                      ))}
                     </select>
                   </td>
                 </tr>
@@ -590,9 +749,8 @@ export function ImportWizardModal({ open, onClose, moduleName }: { open: boolean
         <div className="space-y-3">
           <p className="text-sm font-medium">Duplicate handling</p>
           {[
-            { v: "skip", l: "Skip duplicates" },
-            { v: "overwrite", l: "Overwrite existing records" },
-            { v: "clone", l: "Clone as new records" },
+            { v: "skip", l: "Skip rows that fail insert" },
+            { v: "clone", l: "Insert all as new records" },
           ].map((o) => (
             <label key={o.v} className="flex items-center gap-2 text-sm">
               <input type="radio" name="dup" checked={dup === o.v} onChange={() => setDup(o.v)} />
@@ -600,7 +758,8 @@ export function ImportWizardModal({ open, onClose, moduleName }: { open: boolean
             </label>
           ))}
           <div className="mt-4 rounded bg-blue-50 p-3 text-sm text-blue-800">
-            Ready to import <strong>{fileName}</strong> into {moduleName}. Job will appear under My Jobs.
+            Ready to import <strong>{csvRows.length}</strong> row(s) from <strong>{fileName}</strong> into {moduleName}.
+            {resultMsg && <div className="mt-2 font-medium text-emerald-700">{resultMsg}</div>}
           </div>
         </div>
       )}

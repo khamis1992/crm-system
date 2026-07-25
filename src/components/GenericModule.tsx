@@ -27,6 +27,8 @@ import {
   CreatePipelineWizard,
 } from "@/components/modals/AdvancedModals";
 import { formatDate, formatMoney, cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
+import { Modal } from "@/components/ui/Modal";
 import {
   Search,
   Plus,
@@ -89,6 +91,7 @@ function displayValue(field: FieldDef, row: Record<string, unknown>) {
 const PAGE_SIZES = [10, 25, 50, 100];
 
 export function GenericListPage({ config }: { config: ModuleConfig }) {
+  const { toast } = useToast();
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -100,6 +103,18 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
   const [sortKey, setSortKey] = useState("created_at");
   const [filters, setFilters] = useState<{ field: string; op: string; value: string }[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+
+  const colStorageKey = `crm-cols-${config.table}`;
+  const allListFields = config.fields.filter((f) => f.list !== false);
+  const [visibleCols, setVisibleCols] = useState<string[]>(() => {
+    if (typeof window === "undefined") return allListFields.slice(0, 8).map((f) => f.key);
+    try {
+      const saved = localStorage.getItem(colStorageKey);
+      if (saved) return JSON.parse(saved) as string[];
+    } catch { /* ignore */ }
+    return allListFields.slice(0, 8).map((f) => f.key);
+  });
 
   const [emailOpen, setEmailOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
@@ -114,15 +129,16 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [pipelineOpen, setPipelineOpen] = useState(false);
 
-  const listFields = config.fields.filter((f) => f.list !== false).slice(0, 8);
+  const listFields = allListFields.filter((f) => visibleCols.includes(f.key));
   const ownerField = config.ownerField || config.fields.find((f) => f.key.includes("owner"))?.key || "owner_name";
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from(config.table).select("*").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from(config.table).select("*").order("created_at", { ascending: false });
+    if (error) toast(error.message, "error");
     setRows((data as Record<string, unknown>[]) || []);
     setLoading(false);
-  }, [config.table]);
+  }, [config.table, toast]);
 
   useEffect(() => {
     load();
@@ -172,13 +188,27 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
   }));
 
   async function doDelete() {
-    await supabase.from(config.table).delete().in("id", [...selected]);
+    const { error } = await supabase.from(config.table).delete().in("id", [...selected]);
+    if (error) {
+      toast(error.message, "error");
+      return;
+    }
+    toast(`Deleted ${selected.size} record(s)`, "success");
     setSelected(new Set());
     load();
   }
 
   function printPreview() {
     window.print();
+  }
+
+  function saveColumns(keys: string[]) {
+    setVisibleCols(keys);
+    try {
+      localStorage.setItem(colStorageKey, JSON.stringify(keys));
+    } catch { /* ignore */ }
+    setColumnsOpen(false);
+    toast("Columns updated", "success");
   }
 
   const actionItems = [
@@ -194,7 +224,7 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
     { label: "Sheet View", onClick: () => setView("sheet"), checked: view === "sheet" },
     { label: "Kanban / Canvas", onClick: () => setView("kanban"), checked: view === "kanban" },
     { divider: true, label: "" },
-    { label: "Manage Columns", onClick: () => alert("Column chooser — configure in Setup → Layouts") },
+    { label: "Manage Columns", onClick: () => setColumnsOpen(true) },
     ...(config.table === "deals"
       ? [
           { label: "Manage Pipeline", onClick: () => setPipelineOpen(true) },
@@ -467,7 +497,7 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
       <ComposeEmailModal open={emailOpen} onClose={() => setEmailOpen(false)} />
       <ManageTagsModal open={tagsOpen} onClose={() => setTagsOpen(false)} recordIds={[...selected]} recordType={config.table} />
       <ChangeOwnerModal open={ownerOpen} onClose={() => setOwnerOpen(false)} recordIds={[...selected]} table={config.table} ownerField={ownerField} onDone={load} />
-      <ImportWizardModal open={importOpen} onClose={() => setImportOpen(false)} moduleName={config.title} />
+      <ImportWizardModal open={importOpen} onClose={() => { setImportOpen(false); load(); }} moduleName={config.title} table={config.table} fields={config.fields.map((f) => ({ key: f.key, label: f.label, type: f.type }))} />
       <MassCreateTasksModal open={tasksOpen} onClose={() => setTasksOpen(false)} count={selected.size || 1} />
       <UploadDocumentModal open={uploadOpen} onClose={() => { setUploadOpen(false); load(); }} />
       <ConvertLeadModal open={convertOpen} onClose={() => setConvertOpen(false)} lead={convertLead} onConverted={load} />
@@ -488,7 +518,66 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
         rows={selected.size ? filtered.filter((r) => selected.has(String(r.id))) : filtered}
       />
       <CreatePipelineWizard open={pipelineOpen} onClose={() => setPipelineOpen(false)} />
+      <ManageColumnsModal
+        open={columnsOpen}
+        onClose={() => setColumnsOpen(false)}
+        fields={allListFields.map((f) => ({ key: f.key, label: f.label }))}
+        selected={visibleCols}
+        onSave={saveColumns}
+      />
     </div>
+  );
+}
+
+function ManageColumnsModal({
+  open,
+  onClose,
+  fields,
+  selected,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  fields: { key: string; label: string }[];
+  selected: string[];
+  onSave: (keys: string[]) => void;
+}) {
+  const [keys, setKeys] = useState(selected);
+  useEffect(() => {
+    if (open) setKeys(selected);
+  }, [open, selected]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Manage Columns"
+      width="md"
+      footer={
+        <>
+          <button className="crm-btn crm-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="crm-btn crm-btn-primary" onClick={() => onSave(keys.length ? keys : selected)} disabled={!keys.length}>
+            Apply
+          </button>
+        </>
+      }
+    >
+      <p className="mb-3 text-xs text-gray-500">Choose which columns appear in the list view.</p>
+      <div className="max-h-72 space-y-1 overflow-auto">
+        {fields.map((f) => (
+          <label key={f.key} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={keys.includes(f.key)}
+              onChange={() =>
+                setKeys((k) => (k.includes(f.key) ? k.filter((x) => x !== f.key) : [...k, f.key]))
+              }
+            />
+            {f.label}
+          </label>
+        ))}
+      </div>
+    </Modal>
   );
 }
 
@@ -620,6 +709,7 @@ export function GenericEditPage({ config, id }: { config: ModuleConfig; id: stri
 
 export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: string }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [row, setRow] = useState<Record<string, unknown> | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
@@ -628,16 +718,43 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
   const [convertOpen, setConvertOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [notes, setNotes] = useState<{ id: string; body: string; created_at: string }[]>([]);
+  const [timeline, setTimeline] = useState<{ id: string; activity_type: string; subject: string | null; body: string | null; created_at: string }[]>([]);
+  const [related, setRelated] = useState<Record<string, number>>({});
   const [tab, setTab] = useState<"overview" | "timeline" | "related">("overview");
 
   const load = useCallback(() => {
     supabase.from(config.table).select("*").eq("id", id).single().then(({ data }) => setRow(data as Record<string, unknown>));
   }, [config.table, id]);
 
+  const loadRelated = useCallback(async () => {
+    const [n, a, t, c, m] = await Promise.all([
+      supabase.from("notes").select("id, body, created_at").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }),
+      supabase.from("activities").select("id, activity_type, subject, body, created_at").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("tasks").select("id", { count: "exact", head: true }).eq("related_to_type", config.table).eq("related_to_id", id),
+      supabase.from("calls").select("id", { count: "exact", head: true }).eq("related_to_type", config.table).eq("related_to_id", id),
+      supabase.from("meetings").select("id", { count: "exact", head: true }).eq("related_to_type", config.table).eq("related_to_id", id),
+    ]);
+    setNotes((n.data as typeof notes) || []);
+    setTimeline((a.data as typeof timeline) || []);
+    const emailCount = ((a.data as typeof timeline) || []).filter((x) => x.activity_type === "email").length;
+    setRelated({
+      "Open Activities": (t.count || 0) + (c.count || 0) + (m.count || 0),
+      "Closed Activities": 0,
+      Emails: emailCount,
+      Attachments: 0,
+      Notes: n.data?.length || 0,
+      Campaigns: 0,
+    });
+  }, [config.table, id]);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadRelated(); }, [loadRelated]);
 
   async function remove() {
-    await supabase.from(config.table).delete().eq("id", id);
+    const { error } = await supabase.from(config.table).delete().eq("id", id);
+    if (error) return toast(error.message, "error");
+    toast("Record deleted", "success");
     router.push(config.href);
   }
 
@@ -657,6 +774,21 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
       related_to_id: id,
     });
     setNote("");
+    toast("Note saved", "success");
+    loadRelated();
+  }
+
+  function exportRecord() {
+    if (!row) return;
+    const cols = config.fields;
+    const header = cols.map((c) => c.label).join(",");
+    const body = cols.map((c) => `"${String(row[c.key] ?? "").replace(/"/g, '""')}"`).join(",");
+    const blob = new Blob([header + "\n" + body], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${config.table}-${id}.csv`;
+    a.click();
+    toast("Exported CSV", "success");
   }
 
   if (!row) return <div className="p-8 text-gray-400">Loading…</div>;
@@ -709,7 +841,7 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
                 if (data) router.push(`${config.href}/${data.id}`);
               }},
               { label: "Print Preview", onClick: () => window.print(), icon: <Printer size={14} /> },
-              { label: "Export", onClick: () => {}, icon: <Download size={14} /> },
+              { label: "Export", onClick: exportRecord, icon: <Download size={14} /> },
               { divider: true, label: "" },
               { label: "Delete", onClick: () => setDeleteOpen(true), danger: true, icon: <Trash2 size={14} /> },
             ]}
@@ -774,18 +906,34 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
             ))}
           {tab === "timeline" && (
             <div className="rounded border border-[var(--crm-border)] bg-white p-4 text-sm text-gray-500">
-              Created {formatDate(String(row.created_at))} · Updated {formatDate(String(row.updated_at))}
+              Created {formatDate(String(row.created_at))} · Updated {formatDate(String(row.updated_at || row.created_at))}
               <div className="mt-4 space-y-2">
-                <div className="rounded bg-gray-50 p-3">Record created</div>
-                <div className="rounded bg-gray-50 p-3">Last modified</div>
+                {timeline.length === 0 && (
+                  <>
+                    <div className="rounded bg-gray-50 p-3">Record created · {formatDate(String(row.created_at))}</div>
+                    <div className="rounded bg-gray-50 p-3">Last modified · {formatDate(String(row.updated_at || row.created_at))}</div>
+                  </>
+                )}
+                {timeline.map((t) => (
+                  <div key={t.id} className="rounded border border-gray-100 bg-gray-50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-gray-700">{t.subject || t.activity_type}</span>
+                      <span className="text-[11px] text-gray-400">{formatDate(t.created_at)}</span>
+                    </div>
+                    {t.body && <div className="mt-1 whitespace-pre-wrap text-xs text-gray-500">{t.body}</div>}
+                    <div className="mt-1 text-[10px] uppercase tracking-wide text-gray-400">{t.activity_type}</div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
           {tab === "related" && (
             <div className="rounded border border-[var(--crm-border)] bg-white p-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {["Open Activities", "Closed Activities", "Emails", "Attachments", "Notes", "Campaigns"].map((r) => (
-                  <div key={r} className="rounded border border-dashed border-gray-200 p-3 text-gray-500">{r} (0)</div>
+                {Object.entries(related).map(([label, count]) => (
+                  <div key={label} className="rounded border border-dashed border-gray-200 p-3 text-gray-600">
+                    {label} <span className="font-semibold text-[var(--crm-blue)]">({count})</span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -798,6 +946,14 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
             <div className="p-4">
               <textarea className="crm-input min-h-[80px]" placeholder="Add a note…" value={note} onChange={(e) => setNote(e.target.value)} />
               <button className="crm-btn crm-btn-primary mt-2 !text-xs" onClick={saveNote}>Save Note</button>
+              <div className="mt-3 max-h-48 space-y-2 overflow-auto">
+                {notes.map((n) => (
+                  <div key={n.id} className="rounded bg-gray-50 p-2 text-xs text-gray-600">
+                    <div className="mb-0.5 text-[10px] text-gray-400">{formatDate(n.created_at)}</div>
+                    {n.body}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           <div className="rounded border border-[var(--crm-border)] bg-white">

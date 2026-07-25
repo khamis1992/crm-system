@@ -3,10 +3,17 @@ import { createClient } from "@supabase/supabase-js";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createClient(url, key, {
-  db: { schema: "zcrm" },
-  auth: { persistSession: false },
-});
+const clientOptions = {
+  db: { schema: "zcrm" as const },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+};
+
+export const supabase = createClient(url || "https://placeholder.supabase.co", key || "placeholder", clientOptions);
+export const supabaseAuth = supabase;
 
 export type Lead = {
   id: string;

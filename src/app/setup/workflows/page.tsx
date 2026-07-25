@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
 const ACTIONS = [
   "Email Notification",
@@ -32,39 +33,69 @@ type Rule = {
   actions: string[];
 };
 
-const SEED: Rule[] = [
-  { id: "1", name: "Notify owner on deal stage", module: "Deals", status: "Active", trigger: "Edit", condition: "Stage is Closed Won", actions: ["Email Notification"] },
-  { id: "2", name: "Assign lead round-robin", module: "Leads", status: "Active", trigger: "Create", condition: "Lead Source is Web Download", actions: ["Assign Owner"] },
-];
-
 export default function WorkflowsPage() {
-  const [rules, setRules] = useState<Rule[]>(SEED);
+  const { toast } = useToast();
+  const [rules, setRules] = useState<Rule[]>([]);
   const [builder, setBuilder] = useState(false);
   const [actionMenu, setActionMenu] = useState(false);
   const [actionForm, setActionForm] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", module: "Leads", trigger: "Create", condition: "", actions: [] as string[] });
   const [step, setStep] = useState<"meta" | "builder">("meta");
 
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("workflow_rules").select("*").order("created_at", { ascending: false });
+    if (error) {
+      toast(error.message, "error");
+      return;
+    }
+    setRules(
+      (data || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        module: r.module,
+        status: r.active ? "Active" : "Inactive",
+        trigger: r.trigger_type || "Create",
+        condition: Array.isArray(r.conditions) && r.conditions[0]
+          ? `${r.conditions[0].field || ""} ${r.conditions[0].op || ""} ${r.conditions[0].value || ""}`.trim() || "None"
+          : r.description || "None",
+        actions: Array.isArray(r.actions) ? r.actions.map(String) : [],
+      }))
+    );
+  }, [toast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
   async function saveRule() {
-    const rule: Rule = {
-      id: crypto.randomUUID(),
+    const { error } = await supabase.from("workflow_rules").insert({
       name: form.name || "Untitled Rule",
       module: form.module,
-      status: "Active",
-      trigger: form.trigger,
-      condition: form.condition || "None",
+      description: form.condition || null,
+      trigger_type: form.trigger,
+      conditions: form.condition ? [{ field: "custom", op: "is", value: form.condition }] : [],
       actions: form.actions,
-    };
-    setRules([rule, ...rules]);
-    await supabase.from("activities").insert({
-      activity_type: "workflow",
-      subject: `Workflow: ${rule.name}`,
-      body: JSON.stringify(rule),
-      related_to_type: "setup",
+      active: true,
     });
+    if (error) return toast(error.message, "error");
+    toast("Workflow rule saved", "success");
     setBuilder(false);
     setStep("meta");
     setForm({ name: "", module: "Leads", trigger: "Create", condition: "", actions: [] });
+    load();
+  }
+
+  async function deleteRule(id: string) {
+    const { error } = await supabase.from("workflow_rules").delete().eq("id", id);
+    if (error) return toast(error.message, "error");
+    toast("Rule deleted", "success");
+    load();
+  }
+
+  async function toggleRule(id: string, status: string) {
+    const { error } = await supabase.from("workflow_rules").update({ active: status !== "Active" }).eq("id", id);
+    if (error) return toast(error.message, "error");
+    load();
   }
 
   return (
@@ -95,13 +126,32 @@ export default function WorkflowsPage() {
               </tr>
             </thead>
             <tbody>
+              {rules.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-gray-400">No workflow rules yet</td>
+                </tr>
+              )}
               {rules.map((r) => (
                 <tr key={r.id}>
                   <td className="font-medium text-[var(--crm-blue)]">{r.name}</td>
                   <td>{r.module}</td>
                   <td>{r.trigger}</td>
-                  <td><span className="rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{r.status}</span></td>
-                  <td className="text-xs text-gray-500">{r.actions.join(", ")}</td>
+                  <td>
+                    <button
+                      className={`rounded px-2 py-0.5 text-xs ${r.status === "Active" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}
+                      onClick={() => toggleRule(r.id, r.status)}
+                    >
+                      {r.status}
+                    </button>
+                  </td>
+                  <td className="text-xs text-gray-500">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{r.actions.join(", ") || "—"}</span>
+                      <button className="text-gray-400 hover:text-red-500" onClick={() => deleteRule(r.id)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
