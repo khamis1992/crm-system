@@ -5,6 +5,8 @@ import { Modal } from "@/components/ui/Modal";
 import { supabase, DEAL_STAGES } from "@/lib/supabase";
 import { fullName } from "@/lib/utils";
 import { Paperclip, Bold, Italic, Underline, List, Link2 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/lib/auth-context";
 
 /* ───────── Compose Email ───────── */
 export function ComposeEmailModal({
@@ -18,8 +20,10 @@ export function ComposeEmailModal({
   to?: string;
   recordName?: string;
 }) {
+  const { toast } = useToast();
+  const { displayName, email } = useAuth();
   const [form, setForm] = useState({
-    from: "demo@crm.local",
+    from: email || "demo@crm.local",
     to,
     cc: "",
     bcc: "",
@@ -31,8 +35,8 @@ export function ComposeEmailModal({
   const [showCc, setShowCc] = useState(false);
 
   useEffect(() => {
-    if (open) setForm((f) => ({ ...f, to, subject: recordName ? `Re: ${recordName}` : "" }));
-  }, [open, to, recordName]);
+    if (open) setForm((f) => ({ ...f, to, from: email || f.from, subject: recordName ? `Re: ${recordName}` : "" }));
+  }, [open, to, recordName, email]);
 
   async function send() {
     await supabase.from("activities").insert({
@@ -40,7 +44,7 @@ export function ComposeEmailModal({
       subject: form.subject || "Email sent",
       body: `To: ${form.to}\nCc: ${form.cc}\nBcc: ${form.bcc}\n\n${form.body}`,
       related_to_type: "email",
-      owner_name: "Demo User",
+      owner_name: displayName,
     });
     await supabase.from("email_threads").insert({
       subject: form.subject || "Email sent",
@@ -56,8 +60,10 @@ export function ComposeEmailModal({
         status: "Not Started",
         priority: "Normal",
         due_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+        owner_name: displayName,
       });
     }
+    toast("Email sent", "success");
     onClose();
   }
 
@@ -134,6 +140,8 @@ export function ComposeEmailModal({
 
 /* ───────── Log Call ───────── */
 export function LogCallModal({ open, onClose, contactName = "" }: { open: boolean; onClose: () => void; contactName?: string }) {
+  const { toast } = useToast();
+  const { displayName } = useAuth();
   const [form, setForm] = useState({
     subject: "",
     call_type: "Outbound",
@@ -146,7 +154,7 @@ export function LogCallModal({ open, onClose, contactName = "" }: { open: boolea
   });
 
   async function save() {
-    await supabase.from("calls").insert({
+    const { error } = await supabase.from("calls").insert({
       subject: form.subject || `Call with ${contactName || "contact"}`,
       call_type: form.call_type,
       call_purpose: form.call_purpose,
@@ -155,14 +163,17 @@ export function LogCallModal({ open, onClose, contactName = "" }: { open: boolea
       call_result: form.call_result,
       description: form.description,
     });
+    if (error) return toast(error.message, "error");
     if (form.followUp) {
       await supabase.from("tasks").insert({
         subject: `Follow up call: ${form.subject}`,
         status: "Not Started",
         priority: "High",
         due_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+        owner_name: displayName,
       });
     }
+    toast("Call logged", "success");
     onClose();
   }
 

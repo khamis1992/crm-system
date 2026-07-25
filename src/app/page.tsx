@@ -25,6 +25,7 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [callsCount, setCallsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const allWidgets = [
@@ -59,18 +60,20 @@ export default function HomePage() {
 
   useEffect(() => {
     (async () => {
-      const [l, d, t, m, c] = await Promise.all([
+      const [l, d, t, m, c, calls] = await Promise.all([
         supabase.from("leads").select("*").order("created_at", { ascending: false }),
         supabase.from("deals").select("*, accounts(account_name)").order("created_at", { ascending: false }),
         supabase.from("tasks").select("*").order("due_date", { ascending: true }),
         supabase.from("meetings").select("*").order("from_datetime", { ascending: true }),
         supabase.from("contacts").select("*").order("created_at", { ascending: false }),
+        supabase.from("calls").select("id", { count: "exact", head: true }),
       ]);
       setLeads((l.data as Lead[]) || []);
       setDeals((d.data as Deal[]) || []);
       setTasks((t.data as CrmTask[]) || []);
       setMeetings((m.data as Meeting[]) || []);
       setContacts((c.data as Contact[]) || []);
+      setCallsCount(calls.count || 0);
       setLoading(false);
     })();
   }, []);
@@ -147,8 +150,8 @@ export default function HomePage() {
         {/* My Jobs Today */}
         {show("My Jobs Today") && <Widget title="My Jobs Today">
           <div className="space-y-3 p-4">
-            <JobRow label="Calls" count={0} href="/calls" />
-            <JobRow label="Tasks" count={tasks.filter((t) => !t.completed).length} href="/tasks" />
+            <JobRow label="Calls" count={callsCount} href="/calls" />
+            <JobRow label="Tasks" count={tasks.filter((t) => !t.completed && t.status !== "Completed").length} href="/tasks" />
             <JobRow label="Meetings" count={meetings.length} href="/meetings" />
           </div>
         </Widget>}
@@ -217,7 +220,23 @@ export default function HomePage() {
           <ul className="divide-y divide-gray-100">
             {tasks.filter((t) => t.status !== "Completed").slice(0, 6).map((t) => (
               <li key={t.id} className="flex items-start gap-2 px-4 py-2.5">
-                <input type="checkbox" className="mt-1" readOnly checked={!!t.completed} />
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={!!t.completed || t.status === "Completed"}
+                  onChange={async (e) => {
+                    const completed = e.target.checked;
+                    await supabase.from("tasks").update({
+                      completed,
+                      status: completed ? "Completed" : "Not Started",
+                    }).eq("id", t.id);
+                    setTasks((prev) =>
+                      prev.map((x) =>
+                        x.id === t.id ? { ...x, completed, status: completed ? "Completed" : "Not Started" } : x
+                      )
+                    );
+                  }}
+                />
                 <div className="min-w-0 flex-1">
                   <Link href={`/tasks/${t.id}`} className="block truncate font-medium text-[var(--crm-blue)]">
                     {t.subject}

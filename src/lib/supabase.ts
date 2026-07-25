@@ -261,6 +261,9 @@ export type Activity = {
   activity_type: string;
   subject: string | null;
   body: string | null;
+  owner_name?: string | null;
+  related_to_type?: string | null;
+  related_to_id?: string | null;
   created_at: string;
 };
 

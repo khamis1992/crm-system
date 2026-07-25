@@ -19,11 +19,25 @@ export default function MyJobsPage() {
       .then(({ data }) => setJobs((data as Activity[]) || []));
   }, []);
 
-  const filtered = jobs.filter((j) =>
-    tab === "Import"
-      ? j.activity_type === "import" || j.subject?.toLowerCase().includes("import")
-      : true
-  );
+  const filtered = jobs.filter((j) => {
+    const type = (j.activity_type || "").toLowerCase();
+    const sub = (j.subject || "").toLowerCase();
+    const body = (j.body || "").toLowerCase();
+    const hay = `${type} ${sub} ${body}`;
+    const map: Record<string, string[]> = {
+      Import: ["import"],
+      Export: ["export"],
+      "Mass Update": ["mass_update", "mass update"],
+      Delete: ["delete"],
+      Deduplicate: ["dedup", "deduplicate"],
+      Backup: ["backup"],
+      "Review Process": ["review", "approval"],
+      Extract: ["extract"],
+      Enrich: ["enrich"],
+    };
+    const keys = map[tab] || [tab.toLowerCase()];
+    return keys.some((k) => hay.includes(k));
+  });
 
   return (
     <div className="flex h-full flex-col">

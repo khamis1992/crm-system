@@ -268,7 +268,7 @@ export default function WorkflowsPage() {
       <Modal open={!!actionForm} onClose={() => setActionForm(null)} title={`Action: ${actionForm}`} width="md" footer={
         <>
           <button className="crm-btn crm-btn-secondary" onClick={() => setActionForm(null)}>Cancel</button>
-          <button className="crm-btn crm-btn-primary" onClick={() => setActionForm(null)}>Done</button>
+          <button className="crm-btn crm-btn-primary" onClick={() => { toast("Action configured", "success"); setActionForm(null); }}>Done</button>
         </>
       }>
         {actionForm === "Email Notification" && (
@@ -298,7 +298,7 @@ export default function WorkflowsPage() {
         {actionForm === "Webhook" && (
           <div className="space-y-2">
             <label className="crm-label">URL</label>
-            <input className="crm-input" placeholder="https://" />
+            <input className="crm-input" placeholder="https://" defaultValue="https://" />
             <label className="crm-label">Method</label>
             <select className="crm-input"><option>POST</option><option>GET</option><option>PUT</option></select>
           </div>

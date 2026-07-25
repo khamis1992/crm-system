@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 const categories = [
@@ -63,15 +66,38 @@ const categories = [
 ];
 
 export default function SetupPage() {
+  const [q, setQ] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!q.trim()) return categories;
+    const s = q.toLowerCase();
+    return categories
+      .map((cat) => ({
+        ...cat,
+        items: cat.items.filter(
+          (i) => i.label.toLowerCase().includes(s) || i.desc.toLowerCase().includes(s)
+        ),
+      }))
+      .filter((cat) => cat.items.length > 0);
+  }, [q]);
+
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">Setup</h1>
         <p className="text-sm text-gray-500">Search settings or browse categories</p>
-        <input className="crm-input mt-3 max-w-md" placeholder="Search Setup…" />
+        <input
+          className="crm-input mt-3 max-w-md"
+          placeholder="Search Setup…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
       </div>
       <div className="space-y-8">
-        {categories.map((cat) => (
+        {filtered.length === 0 && (
+          <div className="text-sm text-gray-400">No settings match “{q}”</div>
+        )}
+        {filtered.map((cat) => (
           <div key={cat.title}>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">{cat.title}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

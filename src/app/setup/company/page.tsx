@@ -1,8 +1,40 @@
 "use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { getSetting, saveSetting } from "@/lib/settings";
+import { useToast } from "@/components/ui/Toast";
+
+const DEFAULTS = {
+  companyName: "Acme CRM Demo",
+  alias: "ACME",
+  employees: "50-250",
+  phone: "555-0100",
+  website: "https://acme.example",
+  fax: "",
+  address: "100 Market St, San Francisco, CA",
+  description: "",
+  logoName: "",
+};
 
 export default function CompanyPage() {
+  const { toast } = useToast();
+  const [form, setForm] = useState(DEFAULTS);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getSetting("company_details", DEFAULTS).then(setForm);
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    const { error } = await saveSetting("company_details", form);
+    setSaving(false);
+    if (error) toast(error, "error");
+    else toast("Company details saved", "success");
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b bg-white px-4 py-3">
@@ -12,33 +44,63 @@ export default function CompanyPage() {
       <div className="flex-1 overflow-auto p-4">
         <div className="mx-auto max-w-3xl space-y-4 rounded border bg-white p-6">
           <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed text-xs text-gray-400">Logo</div>
-            <button className="crm-btn crm-btn-secondary !text-xs">Upload Logo</button>
+            <div className="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed text-xs text-gray-400">
+              {form.logoName ? form.logoName.slice(0, 8) : "Logo"}
+            </div>
+            <label className="crm-btn crm-btn-secondary !text-xs cursor-pointer">
+              Upload Logo
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setForm({ ...form, logoName: f.name });
+                    toast(`Logo selected: ${f.name}`, "info");
+                  }
+                }}
+              />
+            </label>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            {[
-              ["Company Name", "Acme CRM Demo"],
-              ["Alias", "ACME"],
-              ["Employee Count", "50-250"],
-              ["Phone", "555-0100"],
-              ["Website", "https://acme.example"],
-              ["Fax", ""],
-            ].map(([l, v]) => (
-              <div key={l}>
-                <label className="crm-label">{l}</label>
-                <input className="crm-input" defaultValue={v} />
+            {([
+              ["companyName", "Company Name"],
+              ["alias", "Alias"],
+              ["employees", "Employee Count"],
+              ["phone", "Phone"],
+              ["website", "Website"],
+              ["fax", "Fax"],
+            ] as const).map(([key, label]) => (
+              <div key={key}>
+                <label className="crm-label">{label}</label>
+                <input
+                  className="crm-input"
+                  value={form[key]}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                />
               </div>
             ))}
             <div className="md:col-span-2">
               <label className="crm-label">Address</label>
-              <textarea className="crm-input min-h-[60px]" defaultValue="100 Market St, San Francisco, CA" />
+              <textarea
+                className="crm-input min-h-[60px]"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+              />
             </div>
             <div className="md:col-span-2">
               <label className="crm-label">Description</label>
-              <textarea className="crm-input min-h-[60px]" />
+              <textarea
+                className="crm-input min-h-[60px]"
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
             </div>
           </div>
-          <button className="crm-btn crm-btn-primary">Save</button>
+          <button className="crm-btn crm-btn-primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
         </div>
       </div>
     </div>
