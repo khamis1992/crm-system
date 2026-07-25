@@ -720,31 +720,41 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
   const [note, setNote] = useState("");
   const [notes, setNotes] = useState<{ id: string; body: string; created_at: string }[]>([]);
   const [timeline, setTimeline] = useState<{ id: string; activity_type: string; subject: string | null; body: string | null; created_at: string }[]>([]);
-  const [related, setRelated] = useState<Record<string, number>>({});
+  const [relatedLists, setRelatedLists] = useState<{
+    tasks: { id: string; subject: string; status: string | null }[];
+    calls: { id: string; subject: string }[];
+    meetings: { id: string; title: string }[];
+    emails: number;
+    notes: number;
+    docs: number;
+  }>({ tasks: [], calls: [], meetings: [], emails: 0, notes: 0, docs: 0 });
   const [tab, setTab] = useState<"overview" | "timeline" | "related">("overview");
+  const [quickTaskOpen, setQuickTaskOpen] = useState(false);
+  const [quickTaskSubject, setQuickTaskSubject] = useState("Follow up");
 
   const load = useCallback(() => {
     supabase.from(config.table).select("*").eq("id", id).single().then(({ data }) => setRow(data as Record<string, unknown>));
   }, [config.table, id]);
 
   const loadRelated = useCallback(async () => {
-    const [n, a, t, c, m] = await Promise.all([
+    const [n, a, t, c, m, d] = await Promise.all([
       supabase.from("notes").select("id, body, created_at").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }),
       supabase.from("activities").select("id, activity_type, subject, body, created_at").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }).limit(50),
-      supabase.from("tasks").select("id", { count: "exact", head: true }).eq("related_to_type", config.table).eq("related_to_id", id),
-      supabase.from("calls").select("id", { count: "exact", head: true }).eq("related_to_type", config.table).eq("related_to_id", id),
-      supabase.from("meetings").select("id", { count: "exact", head: true }).eq("related_to_type", config.table).eq("related_to_id", id),
+      supabase.from("tasks").select("id, subject, status").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("calls").select("id, subject").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("meetings").select("id, title").eq("related_to_type", config.table).eq("related_to_id", id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("documents").select("id", { count: "exact", head: true }),
     ]);
     setNotes((n.data as typeof notes) || []);
     setTimeline((a.data as typeof timeline) || []);
     const emailCount = ((a.data as typeof timeline) || []).filter((x) => x.activity_type === "email").length;
-    setRelated({
-      "Open Activities": (t.count || 0) + (c.count || 0) + (m.count || 0),
-      "Closed Activities": 0,
-      Emails: emailCount,
-      Attachments: 0,
-      Notes: n.data?.length || 0,
-      Campaigns: 0,
+    setRelatedLists({
+      tasks: (t.data as typeof relatedLists.tasks) || [],
+      calls: (c.data as typeof relatedLists.calls) || [],
+      meetings: (m.data as typeof relatedLists.meetings) || [],
+      emails: emailCount,
+      notes: n.data?.length || 0,
+      docs: d.count || 0,
     });
   }, [config.table, id]);
 
@@ -928,13 +938,59 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
             </div>
           )}
           {tab === "related" && (
-            <div className="rounded border border-[var(--crm-border)] bg-white p-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                {Object.entries(related).map(([label, count]) => (
-                  <div key={label} className="rounded border border-dashed border-gray-200 p-3 text-gray-600">
-                    {label} <span className="font-semibold text-[var(--crm-blue)]">({count})</span>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                {[
+                  { label: "Tasks", count: relatedLists.tasks.length, href: "/tasks" },
+                  { label: "Calls", count: relatedLists.calls.length, href: "/calls" },
+                  { label: "Meetings", count: relatedLists.meetings.length, href: "/meetings" },
+                  { label: "Emails", count: relatedLists.emails, href: "/salesinbox" },
+                  { label: "Notes", count: relatedLists.notes },
+                  { label: "Documents", count: relatedLists.docs, href: "/documents" },
+                ].map((r) => (
+                  <div key={r.label} className="rounded border border-[var(--crm-border)] bg-white p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">{r.label}</span>
+                      <span className="font-semibold text-[var(--crm-blue)]">({r.count})</span>
+                    </div>
+                    {r.href && (
+                      <Link href={r.href} className="mt-1 block text-[11px] text-[var(--crm-blue)]">View all →</Link>
+                    )}
                   </div>
                 ))}
+              </div>
+              <div className="rounded border border-[var(--crm-border)] bg-white p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-sm font-semibold text-[var(--crm-blue)]">Open Tasks</div>
+                  <button className="text-xs text-[var(--crm-blue)]" onClick={() => setQuickTaskOpen(true)}>+ Add Task</button>
+                </div>
+                {relatedLists.tasks.length === 0 && <div className="text-xs text-gray-400">No related tasks</div>}
+                <ul className="space-y-1 text-sm">
+                  {relatedLists.tasks.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/tasks/${t.id}`} className="text-[var(--crm-blue)]">{t.subject}</Link>
+                      <span className="ml-2 text-[11px] text-gray-400">{t.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded border border-[var(--crm-border)] bg-white p-4">
+                <div className="mb-2 text-sm font-semibold text-[var(--crm-blue)]">Calls</div>
+                {relatedLists.calls.length === 0 && <div className="text-xs text-gray-400">No related calls — use Call button</div>}
+                <ul className="space-y-1 text-sm">
+                  {relatedLists.calls.map((c) => (
+                    <li key={c.id}><Link href={`/calls/${c.id}`} className="text-[var(--crm-blue)]">{c.subject}</Link></li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded border border-[var(--crm-border)] bg-white p-4">
+                <div className="mb-2 text-sm font-semibold text-[var(--crm-blue)]">Meetings</div>
+                {relatedLists.meetings.length === 0 && <div className="text-xs text-gray-400">No related meetings</div>}
+                <ul className="space-y-1 text-sm">
+                  {relatedLists.meetings.map((m) => (
+                    <li key={m.id}><Link href={`/meetings/${m.id}`} className="text-[var(--crm-blue)]">{m.title}</Link></li>
+                  ))}
+                </ul>
               </div>
             </div>
           )}
@@ -973,12 +1029,47 @@ export function GenericDetailPage({ config, id }: { config: ModuleConfig; id: st
         </div>
       </div>
 
-      <ComposeEmailModal open={emailOpen} onClose={() => setEmailOpen(false)} to={emailField ? String(row[emailField.key] || "") : ""} recordName={title} />
-      <LogCallModal open={callOpen} onClose={() => setCallOpen(false)} contactName={title} />
+      <ComposeEmailModal open={emailOpen} onClose={() => { setEmailOpen(false); loadRelated(); }} to={emailField ? String(row[emailField.key] || "") : ""} recordName={title} relatedType={config.table} relatedId={id} />
+      <LogCallModal open={callOpen} onClose={() => { setCallOpen(false); loadRelated(); }} contactName={title} relatedType={config.table} relatedId={id} />
       <ManageTagsModal open={tagsOpen} onClose={() => setTagsOpen(false)} recordIds={[id]} recordType={config.table} />
       <ChangeOwnerModal open={ownerOpen} onClose={() => setOwnerOpen(false)} recordIds={[id]} table={config.table} ownerField={ownerField} onDone={load} />
       <ConvertLeadModal open={convertOpen} onClose={() => setConvertOpen(false)} lead={row} onConverted={() => router.push("/contacts")} />
       <ConfirmDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={remove} title="Delete record" message="Are you sure you want to delete this record?" confirmLabel="Delete" danger />
+      <Modal
+        open={quickTaskOpen}
+        onClose={() => setQuickTaskOpen(false)}
+        title="Add Related Task"
+        width="md"
+        footer={
+          <>
+            <button className="crm-btn crm-btn-secondary" onClick={() => setQuickTaskOpen(false)}>Cancel</button>
+            <button
+              className="crm-btn crm-btn-primary"
+              onClick={async () => {
+                if (!quickTaskSubject.trim()) return toast("Subject required", "error");
+                const { error } = await supabase.from("tasks").insert({
+                  subject: quickTaskSubject,
+                  status: "Not Started",
+                  priority: "Normal",
+                  related_to_type: config.table,
+                  related_to_id: id,
+                  due_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+                });
+                if (error) return toast(error.message, "error");
+                toast("Task created", "success");
+                setQuickTaskOpen(false);
+                setQuickTaskSubject("Follow up");
+                loadRelated();
+              }}
+            >
+              Create
+            </button>
+          </>
+        }
+      >
+        <label className="crm-label">Subject</label>
+        <input className="crm-input" value={quickTaskSubject} onChange={(e) => setQuickTaskSubject(e.target.value)} />
+      </Modal>
     </div>
   );
 }

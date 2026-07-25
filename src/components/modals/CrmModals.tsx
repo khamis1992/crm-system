@@ -14,11 +14,15 @@ export function ComposeEmailModal({
   onClose,
   to = "",
   recordName = "",
+  relatedType,
+  relatedId,
 }: {
   open: boolean;
   onClose: () => void;
   to?: string;
   recordName?: string;
+  relatedType?: string;
+  relatedId?: string;
 }) {
   const { toast } = useToast();
   const { displayName, email } = useAuth();
@@ -43,7 +47,8 @@ export function ComposeEmailModal({
       activity_type: "email",
       subject: form.subject || "Email sent",
       body: `To: ${form.to}\nCc: ${form.cc}\nBcc: ${form.bcc}\n\n${form.body}`,
-      related_to_type: "email",
+      related_to_type: relatedType || "email",
+      related_to_id: relatedId || null,
       owner_name: displayName,
     });
     await supabase.from("email_threads").insert({
@@ -61,6 +66,8 @@ export function ComposeEmailModal({
         priority: "Normal",
         due_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
         owner_name: displayName,
+        related_to_type: relatedType || null,
+        related_to_id: relatedId || null,
       });
     }
     toast("Email sent", "success");
@@ -139,7 +146,19 @@ export function ComposeEmailModal({
 }
 
 /* ───────── Log Call ───────── */
-export function LogCallModal({ open, onClose, contactName = "" }: { open: boolean; onClose: () => void; contactName?: string }) {
+export function LogCallModal({
+  open,
+  onClose,
+  contactName = "",
+  relatedType,
+  relatedId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  contactName?: string;
+  relatedType?: string;
+  relatedId?: string;
+}) {
   const { toast } = useToast();
   const { displayName } = useAuth();
   const [form, setForm] = useState({
@@ -162,8 +181,18 @@ export function LogCallModal({ open, onClose, contactName = "" }: { open: boolea
       call_duration_minutes: Number(form.call_duration_minutes) || 0,
       call_result: form.call_result,
       description: form.description,
+      related_to_type: relatedType || null,
+      related_to_id: relatedId || null,
     });
     if (error) return toast(error.message, "error");
+    await supabase.from("activities").insert({
+      activity_type: "call",
+      subject: form.subject || `Call with ${contactName || "contact"}`,
+      body: form.description,
+      related_to_type: relatedType || "call",
+      related_to_id: relatedId || null,
+      owner_name: displayName,
+    });
     if (form.followUp) {
       await supabase.from("tasks").insert({
         subject: `Follow up call: ${form.subject}`,
@@ -171,6 +200,8 @@ export function LogCallModal({ open, onClose, contactName = "" }: { open: boolea
         priority: "High",
         due_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
         owner_name: displayName,
+        related_to_type: relatedType || null,
+        related_to_id: relatedId || null,
       });
     }
     toast("Call logged", "success");

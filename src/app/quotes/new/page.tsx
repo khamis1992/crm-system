@@ -5,9 +5,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { FormShell, FormSection, Field } from "@/components/FormShell";
 import { LineItemsEditor, emptyLine, totalsFromLines, type LineItem } from "@/components/ui/LineItems";
+import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/lib/auth-context";
 
 export default function NewQuotePage() {
   const router = useRouter();
+  const { toast } = useToast();
+  const { displayName } = useAuth();
   const [subject, setSubject] = useState("");
   const [stage, setStage] = useState("Draft");
   const [validUntil, setValidUntil] = useState("");
@@ -36,11 +40,13 @@ export default function NewQuotePage() {
         discount: t.discount,
         tax: t.tax,
         grand_total: t.grand_total,
+        owner_name: displayName,
       })
       .select("id")
       .single();
     setSaving(false);
     if (err) return setError(err.message);
+    toast("Quote created", "success");
     router.push(`/quotes/${data.id}`);
   }
 
