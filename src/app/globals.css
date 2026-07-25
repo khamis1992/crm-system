@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+:root {
+  --crm-blue: #2c5cc5;
+  --crm-blue-dark: #1e4aa8;
+  --crm-blue-light: #e8f0fe;
+  --crm-sidebar: #0f2744;
+  --crm-sidebar-hover: #1a3a5c;
+  --crm-border: #e0e4ea;
+  --crm-bg: #f5f7fa;
+  --crm-text: #1a1f36;
+  --crm-muted: #6b7280;
+  --crm-success: #10b981;
+  --crm-warning: #f59e0b;
+  --crm-danger: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--crm-bg);
+  color: var(--crm-text);
+  font-size: 13px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c5cdd8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.crm-input {
+  width: 100%;
+  border: 1px solid #c9d0db;
+  border-radius: 3px;
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+}
+.crm-input:focus {
+  border-color: var(--crm-blue);
+  box-shadow: 0 0 0 2px rgba(44, 92, 197, 0.15);
+}
+
+.crm-label {
+  display: block;
+  font-size: 12px;
+  color: #4b5563;
+  margin-bottom: 4px;
+}
+
+.crm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.crm-btn-primary {
+  background: var(--crm-blue);
+  color: #fff;
+}
+.crm-btn-primary:hover {
+  background: var(--crm-blue-dark);
+}
+.crm-btn-secondary {
+  background: #fff;
+  border-color: #c9d0db;
+  color: #374151;
+}
+.crm-btn-secondary:hover {
+  background: #f3f4f6;
+}
+.crm-btn-danger {
+  background: #fff;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+.crm-btn-danger:hover {
+  background: #fef2f2;
+}
+
+.crm-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+.crm-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--crm-border);
+  white-space: nowrap;
+}
+.crm-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef1f5;
+  vertical-align: middle;
+}
+.crm-table tr:hover td {
+  background: #f8fbff;
+}
+.crm-table a {
+  color: var(--crm-blue);
+  text-decoration: none;
+  font-weight: 500;
+}
+.crm-table a:hover {
+  text-decoration: underline;
+}
+
+.kanban-col {
+  min-width: 240px;
+  max-width: 280px;
+  background: #eef1f6;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 220px);
+}
+.kanban-card {
+  background: #fff;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid #e5e9f0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+.kanban-card:hover {
+  border-color: var(--crm-blue);
+  box-shadow: 0 2px 8px rgba(44, 92, 197, 0.12);
+}
+
+.widget-card {
+  background: #fff;
+  border: 1px solid var(--crm-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef1f5;
+  font-weight: 600;
+  font-size: 13px;
+}
