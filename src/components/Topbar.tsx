@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { ComposeEmailModal, LogCallModal } from "@/components/modals/CrmModals";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
+import { useCurrency } from "@/lib/currency-context";
 import { supabase } from "@/lib/supabase";
 import { Modal } from "@/components/ui/Modal";
 
@@ -30,6 +31,7 @@ export function Topbar() {
   const router = useRouter();
   const { displayName, email, signOut } = useAuth();
   const { toast } = useToast();
+  const { currency } = useCurrency();
   const mod =
     MODULES.find(
       (m) => m.href !== "/" && (pathname === m.href || pathname.startsWith(m.href + "/"))
@@ -269,6 +271,13 @@ export function Topbar() {
           >
             <HelpCircle size={16} />
           </button>
+          <Link
+            href="/setup/company"
+            className="rounded px-2 py-1 text-[11px] font-semibold text-[var(--crm-blue)] hover:bg-blue-50"
+            title="System currency — change in Setup → Company"
+          >
+            {currency}
+          </Link>
           <Link href="/setup" className="rounded p-2 text-gray-500 hover:bg-gray-100">
             <Settings size={16} />
           </Link>

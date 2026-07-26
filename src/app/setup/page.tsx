@@ -7,8 +7,8 @@ const categories = [
   {
     title: "General",
     items: [
-      { label: "Personal Settings", href: "/setup/personal", desc: "Locale, language, appearance" },
-      { label: "Company Details", href: "/setup/company", desc: "Org logo & address" },
+      { label: "Personal Settings", href: "/setup/personal", desc: "Locale, language, currency, appearance" },
+      { label: "Company Details", href: "/setup/company", desc: "Org logo, address & currency (default QAR)" },
       { label: "Calendar Preference", href: "/setup/calendar", desc: "Hours & week start" },
     ],
   },

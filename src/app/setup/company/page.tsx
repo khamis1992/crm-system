@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getSetting, saveSetting } from "@/lib/settings";
 import { useToast } from "@/components/ui/Toast";
+import { useCurrency } from "@/lib/currency-context";
+import { CURRENCIES, type CurrencyCode } from "@/lib/currency";
 
 const DEFAULTS = {
   companyName: "Acme CRM Demo",
@@ -13,32 +15,43 @@ const DEFAULTS = {
   phone: "555-0100",
   website: "https://acme.example",
   fax: "",
-  address: "100 Market St, San Francisco, CA",
+  address: "Doha, Qatar",
   description: "",
   logoName: "",
+  currency: "QAR" as CurrencyCode,
 };
 
 export default function CompanyPage() {
   const { toast } = useToast();
-  const [form, setForm] = useState(DEFAULTS);
+  const { currency: appCurrency, setCurrency, formatMoney } = useCurrency();
+  const [form, setForm] = useState({ ...DEFAULTS, currency: appCurrency });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getSetting("company_details", DEFAULTS).then(setForm);
-  }, []);
+    getSetting("company_details", DEFAULTS).then((data) => {
+      setForm({
+        ...DEFAULTS,
+        ...data,
+        currency: (data.currency as CurrencyCode) || appCurrency || "QAR",
+      });
+    });
+  }, [appCurrency]);
 
   async function save() {
     setSaving(true);
     const { error } = await saveSetting("company_details", form);
+    await setCurrency(form.currency);
     setSaving(false);
     if (error) toast(error, "error");
-    else toast("Company details saved", "success");
+    else toast(`Company saved · Currency: ${form.currency}`, "success");
   }
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b bg-white px-4 py-3">
-        <Link href="/setup" className="rounded p-1 hover:bg-gray-100"><ArrowLeft size={18} /></Link>
+        <Link href="/setup" className="rounded p-1 hover:bg-gray-100">
+          <ArrowLeft size={18} />
+        </Link>
         <h1 className="text-lg font-semibold">Company Details</h1>
       </div>
       <div className="flex-1 overflow-auto p-4">
@@ -63,15 +76,37 @@ export default function CompanyPage() {
               />
             </label>
           </div>
+
+          <div className="rounded border border-blue-100 bg-blue-50 p-4">
+            <label className="crm-label">System Currency (base currency)</label>
+            <select
+              className="crm-input max-w-md"
+              value={form.currency}
+              onChange={(e) => setForm({ ...form, currency: e.target.value as CurrencyCode })}
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-gray-600">
+              Default is <strong>QAR</strong>. All money fields use this currency.
+              Preview: <strong>{formatMoney(12500)}</strong>
+            </p>
+          </div>
+
           <div className="grid gap-3 md:grid-cols-2">
-            {([
-              ["companyName", "Company Name"],
-              ["alias", "Alias"],
-              ["employees", "Employee Count"],
-              ["phone", "Phone"],
-              ["website", "Website"],
-              ["fax", "Fax"],
-            ] as const).map(([key, label]) => (
+            {(
+              [
+                ["companyName", "Company Name"],
+                ["alias", "Alias"],
+                ["employees", "Employee Count"],
+                ["phone", "Phone"],
+                ["website", "Website"],
+                ["fax", "Fax"],
+              ] as const
+            ).map(([key, label]) => (
               <div key={key}>
                 <label className="crm-label">{label}</label>
                 <input

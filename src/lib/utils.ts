@@ -1,17 +1,14 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { formatMoneyValue } from "@/lib/currency";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Formats money using the app currency (default QAR). Reads live setting from localStorage. */
 export function formatMoney(n: number | null | undefined) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(Number(n));
+  return formatMoneyValue(n);
 }
 
 export function formatDate(d: string | null | undefined) {
