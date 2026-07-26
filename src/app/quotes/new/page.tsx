@@ -15,12 +15,13 @@ export default function NewQuotePage() {
   const [subject, setSubject] = useState("");
   const [stage, setStage] = useState("Draft");
   const [validUntil, setValidUntil] = useState("");
-  const [items, setItems] = useState<LineItem[]>([emptyLine()]);
+  const [items, setItems] = useState<LineItem[]>([]);
   const [products, setProducts] = useState<{ product_name: string; unit_price: number }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    setItems([emptyLine("quote-0")]);
     supabase.from("products").select("product_name, unit_price").then(({ data }) => {
       setProducts((data as typeof products) || []);
     });

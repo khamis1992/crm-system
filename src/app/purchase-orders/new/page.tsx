@@ -15,12 +15,13 @@ export default function NewPurchaseOrderPage() {
   const [status, setStatus] = useState("Created");
   const [poDate, setPoDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState("");
-  const [items, setItems] = useState<LineItem[]>([emptyLine()]);
+  const [items, setItems] = useState<LineItem[]>([]);
   const [products, setProducts] = useState<{ product_name: string; unit_price: number }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    setItems([emptyLine("po-0")]);
     supabase.from("products").select("product_name, unit_price").then(({ data }) => {
       setProducts((data as typeof products) || []);
     });

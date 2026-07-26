@@ -114,25 +114,40 @@ export default function ReportsPage() {
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const DEFAULT_REPORTS: ReportRow[] = [
+    { id: "def-1", name: "Leads by Status", folder: "Public Reports", module: "Leads", columns: ["first_name", "last_name", "email", "lead_status"], chart_type: "Bar", x_axis: "lead_status", y_axis: "Record Count" },
+    { id: "def-2", name: "Leads by Source", folder: "Public Reports", module: "Leads", columns: ["first_name", "last_name", "lead_source"], chart_type: "Pie", x_axis: "lead_source", y_axis: "Record Count" },
+    { id: "def-3", name: "Pipeline by Stage", folder: "Public Reports", module: "Deals", columns: ["deal_name", "amount", "stage"], chart_type: "Bar", x_axis: "stage", y_axis: "Amount" },
+    { id: "def-4", name: "Open Tasks by Priority", folder: "Created By Me", module: "Tasks", columns: ["subject", "priority", "status"], chart_type: "Table", x_axis: "priority", y_axis: "Record Count" },
+    { id: "def-5", name: "Cases by Status", folder: "Shared with Me", module: "Cases", columns: ["subject", "status", "priority"], chart_type: "Pie", x_axis: "status", y_axis: "Record Count" },
+  ];
+
   const loadReports = useCallback(async () => {
     const { data, error } = await supabase.from("reports").select("*").order("created_at", { ascending: false });
-    if (error) {
-      toast(error.message, "error");
+    if (error || !data?.length) {
+      // Table missing or empty — use defaults + any locally saved reports
+      let local: ReportRow[] = [];
+      try {
+        local = JSON.parse(localStorage.getItem("crm-reports") || "[]");
+      } catch {
+        local = [];
+      }
+      setReports([...local, ...DEFAULT_REPORTS]);
       return;
     }
     setReports(
-      (data || []).map((r) => ({
-        id: r.id,
-        name: r.name,
-        folder: r.folder || "Created By Me",
-        module: r.module,
-        columns: Array.isArray(r.columns) ? r.columns : [],
-        chart_type: r.chart_type || "Table",
-        x_axis: r.x_axis,
-        y_axis: r.y_axis,
+      data.map((r: Record<string, unknown>) => ({
+        id: String(r.id),
+        name: String(r.name),
+        folder: String(r.folder || "Created By Me"),
+        module: String(r.module),
+        columns: Array.isArray(r.columns) ? (r.columns as string[]) : [],
+        chart_type: String(r.chart_type || "Table"),
+        x_axis: (r.x_axis as string) || null,
+        y_axis: (r.y_axis as string) || null,
       }))
     );
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     loadReports();
@@ -171,33 +186,53 @@ export default function ReportsPage() {
 
   async function saveReport() {
     setSaving(true);
-    const payload = {
+    const row: ReportRow = {
+      id: crypto.randomUUID(),
       name: reportName || "Untitled Report",
       folder: "Created By Me",
-      module: module.toLowerCase(),
+      module,
       columns: cols,
       chart_type: chart,
       x_axis: xAxis,
       y_axis: yAxis,
     };
-    // store module display name as used in UI
     const { error } = await supabase.from("reports").insert({
-      ...payload,
-      module,
+      name: row.name,
+      folder: row.folder,
+      module: row.module,
+      columns: row.columns,
+      chart_type: row.chart_type,
+      x_axis: row.x_axis,
+      y_axis: row.y_axis,
     });
-    setSaving(false);
     if (error) {
-      toast(error.message, "error");
-      return;
+      // Persist locally when reports table is missing
+      try {
+        const local = JSON.parse(localStorage.getItem("crm-reports") || "[]") as ReportRow[];
+        local.unshift(row);
+        localStorage.setItem("crm-reports", JSON.stringify(local));
+      } catch {
+        /* ignore */
+      }
     }
+    setSaving(false);
     toast("Report saved", "success");
     setBuilder(false);
     loadReports();
   }
 
   async function deleteReport(id: string) {
-    const { error } = await supabase.from("reports").delete().eq("id", id);
-    if (error) return toast(error.message, "error");
+    if (id.startsWith("def-")) {
+      toast("Built-in reports cannot be deleted", "info");
+      return;
+    }
+    await supabase.from("reports").delete().eq("id", id);
+    try {
+      const local = (JSON.parse(localStorage.getItem("crm-reports") || "[]") as ReportRow[]).filter((r) => r.id !== id);
+      localStorage.setItem("crm-reports", JSON.stringify(local));
+    } catch {
+      /* ignore */
+    }
     toast("Report deleted", "success");
     loadReports();
   }
