@@ -23,7 +23,7 @@ export default function SignupPage() {
     if (err) {
       setError(err);
     } else {
-      router.push("/");
+      window.location.href = "/";
     }
   };
 

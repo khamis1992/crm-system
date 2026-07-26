@@ -1,18 +1,28 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder";
 
-const clientOptions = {
-  db: { schema: "zcrm" as const },
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-};
+type AnyClient = SupabaseClient<any, any, any>;
 
-export const supabase = createClient(url || "https://placeholder.supabase.co", key || "placeholder", clientOptions);
+/**
+ * Shared Supabase client.
+ * Browser: cookie-based SSR client (same session as middleware).
+ * Server: plain client without session persistence.
+ */
+function createDataClient(): AnyClient {
+  if (typeof window !== "undefined") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getSupabaseBrowser } = require("./supabase-browser") as typeof import("./supabase-browser");
+    return getSupabaseBrowser() as AnyClient;
+  }
+  return createClient(url, key, {
+    db: { schema: "zcrm" },
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as AnyClient;
+}
+
+export const supabase: AnyClient = createDataClient();
 export const supabaseAuth = supabase;
 
 export type Lead = {

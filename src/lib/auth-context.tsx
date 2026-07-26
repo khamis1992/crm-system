@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { supabaseAuth } from "@/lib/supabase";
 import type { User, Session } from "@supabase/supabase-js";
+import { getSupabaseBrowser } from "@/lib/supabase-browser";
 
 type AuthContextValue = {
   user: User | null;
@@ -23,7 +23,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabaseAuth.auth.getSession().then(({ data: { session: s } }) => {
+    const client = getSupabaseBrowser();
+    let mounted = true;
+
+    client.auth.getSession().then(({ data: { session: s } }) => {
+      if (!mounted) return;
       setSession(s);
       setUser(s?.user ?? null);
       setLoading(false);
@@ -31,30 +35,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabaseAuth.auth.onAuthStateChange((_event, s) => {
+    } = client.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
+      setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabaseAuth.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    const client = getSupabaseBrowser();
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    setSession(data.session);
+    setUser(data.user);
+    return { error: null };
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, name?: string) => {
-    const { error } = await supabaseAuth.auth.signUp({
+    const client = getSupabaseBrowser();
+    const { data, error } = await client.auth.signUp({
       email,
       password,
       options: { data: { full_name: name || email.split("@")[0] } },
     });
-    return { error: error?.message ?? null };
+    if (error) return { error: error.message };
+    setSession(data.session);
+    setUser(data.user);
+    return { error: null };
   }, []);
 
   const signOut = useCallback(async () => {
-    await supabaseAuth.auth.signOut();
+    const client = getSupabaseBrowser();
+    await client.auth.signOut();
     setUser(null);
     setSession(null);
   }, []);
@@ -62,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const displayName =
     (user?.user_metadata?.full_name as string) ||
     user?.email?.split("@")[0] ||
-    "Demo User";
+    "Admin User";
 
   return (
     <AuthContext.Provider
