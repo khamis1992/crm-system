@@ -8,6 +8,7 @@ Operational CRM cloned from the full Zoho CRM web screenshot set (`0.png`–`920
 2. Run SQL migrations in order (SQL Editor):
    - `supabase/migrations/00001_initial_schema.sql`
    - `supabase/migrations/00002_seed_demo_data.sql` (optional demo data)
+   - `supabase/migrations/00003_quote_line_fields.sql`
 3. **Project Settings → API → Exposed schemas** → add `zcrm`
 4. Enable Email auth
 5. Copy `.env.example` → `.env.local` and set:

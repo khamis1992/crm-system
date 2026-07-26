@@ -29,6 +29,7 @@ import {
 import { formatDate, formatMoney, cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui/Modal";
+import { useAuth } from "@/lib/auth-context";
 import {
   Search,
   Plus,
@@ -92,6 +93,7 @@ const PAGE_SIZES = [10, 25, 50, 100];
 
 export function GenericListPage({ config }: { config: ModuleConfig }) {
   const { toast } = useToast();
+  const { displayName } = useAuth();
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -147,31 +149,46 @@ export function GenericListPage({ config }: { config: ModuleConfig }) {
   const filtered = useMemo(() => {
     let list = [...rows];
     if (systemView.startsWith("My ")) {
-      list = list.filter((r) => String(r[ownerField] || "Demo User").includes("Demo"));
+      const me = displayName.toLowerCase();
+      list = list.filter((r) => {
+        const owner = String(r[ownerField] || "").toLowerCase();
+        return owner.includes(me) || owner.includes("demo") || !owner;
+      });
     }
     if (systemView === "Recently Created") {
       list = list.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    }
+    if (systemView === "Recently Modified") {
+      list = list.slice().sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+    }
+    if (systemView === "Unread Records") {
+      list = list.filter((r) => r.read !== true && r.is_read !== true);
     }
     if (q.trim()) {
       const s = q.toLowerCase();
       list = list.filter((r) => listFields.some((f) => String(r[f.key] ?? "").toLowerCase().includes(s)));
     }
     for (const f of filters) {
-      if (!f.value) continue;
+      if (!f.value && f.op !== "empty" && f.op !== "not_empty") continue;
       list = list.filter((r) => {
-        const v = String(r[f.field] ?? "").toLowerCase();
+        const raw = r[f.field];
+        const v = String(raw ?? "").toLowerCase();
         const val = f.value.toLowerCase();
         if (f.op === "is") return v === val;
         if (f.op === "isn't") return v !== val;
         if (f.op === "starts") return v.startsWith(val);
         if (f.op === "gt") return Number(r[f.field]) > Number(f.value);
         if (f.op === "lt") return Number(r[f.field]) < Number(f.value);
+        if (f.op === "empty") return raw == null || v === "";
+        if (f.op === "not_empty") return raw != null && v !== "";
+        if (f.op === "touched") return !!r.updated_at && String(r.updated_at) !== String(r.created_at);
+        if (f.op === "untouched") return !r.updated_at || String(r.updated_at) === String(r.created_at);
         return v.includes(val);
       });
     }
     list.sort((a, b) => String(a[sortKey] ?? "").localeCompare(String(b[sortKey] ?? ""), undefined, { numeric: true }));
     return list;
-  }, [rows, q, listFields, systemView, ownerField, filters, sortKey]);
+  }, [rows, q, listFields, systemView, ownerField, filters, sortKey, displayName]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -583,6 +600,8 @@ function ManageColumnsModal({
 
 export function GenericFormPage({ config, id }: { config: ModuleConfig; id?: string }) {
   const router = useRouter();
+  const { toast } = useToast();
+  const { displayName } = useAuth();
   const isEdit = !!id;
   const [form, setForm] = useState<Record<string, unknown>>(() => {
     const init: Record<string, unknown> = {};
@@ -594,6 +613,14 @@ export function GenericFormPage({ config, id }: { config: ModuleConfig; id?: str
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(!isEdit);
+
+  useEffect(() => {
+    if (isEdit) return;
+    const ownerKey = config.ownerField || config.fields.find((f) => f.key.includes("owner"))?.key;
+    if (ownerKey) {
+      setForm((s) => (s[ownerKey] ? s : { ...s, [ownerKey]: displayName }));
+    }
+  }, [isEdit, config.ownerField, config.fields, displayName]);
 
   useEffect(() => {
     if (!id) return;
@@ -645,14 +672,18 @@ export function GenericFormPage({ config, id }: { config: ModuleConfig; id?: str
       const { error: err } = await supabase.from(config.table).update(payload).eq("id", id);
       setSaving(false);
       if (err) return setError(err.message);
+      toast("Record updated", "success");
       router.push(`${config.href}/${id}`);
     } else {
       const { data, error: err } = await supabase.from(config.table).insert(payload).select("id").single();
       setSaving(false);
       if (err) return setError(err.message);
+      toast("Record created", "success");
       if (andNew) {
         const init: Record<string, unknown> = {};
         config.fields.forEach((f) => { init[f.key] = f.type === "checkbox" ? false : ""; });
+        const ownerKey = config.ownerField || config.fields.find((f) => f.key.includes("owner"))?.key;
+        if (ownerKey) init[ownerKey] = displayName;
         setForm(init);
       } else {
         router.push(`${config.href}/${data.id}`);

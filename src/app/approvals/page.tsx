@@ -32,7 +32,7 @@ export default function ApprovalsPage() {
   const [form, setForm] = useState({
     title: "",
     module: "Deals",
-    assigned_to: "Demo User",
+    assigned_to: displayName || "Demo User",
     comments: "",
   });
 
@@ -73,7 +73,7 @@ export default function ApprovalsPage() {
     if (error) return toast(error.message, "error");
     toast("Approval request created", "success");
     setCreateOpen(false);
-    setForm({ title: "", module: "Deals", assigned_to: "Demo User", comments: "" });
+    setForm({ title: "", module: "Deals", assigned_to: displayName || "Demo User", comments: "" });
     load();
   }
 
@@ -210,7 +210,7 @@ export default function ApprovalsPage() {
           <div>
             <label className="crm-label">Assign To</label>
             <select className="crm-input" value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })}>
-              {["Demo User", "Alex Sales", "Sam Manager", "Jordan AE"].map((u) => (
+              {[displayName, "Alex Sales", "Sam Manager", "Jordan AE"].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map((u) => (
                 <option key={u}>{u}</option>
               ))}
             </select>

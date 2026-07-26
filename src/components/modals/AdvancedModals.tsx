@@ -253,8 +253,22 @@ export function FilterPanel({
       </div>
       <div className="p-3">
         <div className="mb-3 text-xs font-semibold uppercase text-gray-400">System Defined</div>
-        {["Touched Records", "Untouched Records", "Locked Records", "Latest Email Status"].map((s) => (
-          <button key={s} className="mb-1 block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-blue-50">{s}</button>
+        {[
+          { label: "Touched Records", op: "touched", value: "1" },
+          { label: "Untouched Records", op: "untouched", value: "1" },
+          { label: "Empty Owner", op: "empty", field: fields.find((f) => f.key.includes("owner"))?.key || fields[0]?.key || "id" },
+          { label: "Has Value", op: "not_empty", field: fields[0]?.key || "id" },
+        ].map((s) => (
+          <button
+            key={s.label}
+            className="mb-1 block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-blue-50"
+            onClick={() => {
+              onApply([{ field: s.field || field, op: s.op, value: s.value || "1" }]);
+              onClose();
+            }}
+          >
+            {s.label}
+          </button>
         ))}
         <div className="mb-2 mt-4 text-xs font-semibold uppercase text-gray-400">Filter by Fields</div>
         <select className="crm-input mb-2 !py-1.5 text-xs" value={field} onChange={(e) => setField(e.target.value)}>
@@ -267,6 +281,8 @@ export function FilterPanel({
           <option value="starts">starts with</option>
           <option value="gt">greater than</option>
           <option value="lt">less than</option>
+          <option value="empty">is empty</option>
+          <option value="not_empty">is not empty</option>
         </select>
         <input className="crm-input mb-3 !py-1.5 text-xs" value={value} onChange={(e) => setValue(e.target.value)} placeholder="Value" />
         <button

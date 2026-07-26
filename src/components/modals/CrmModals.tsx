@@ -267,19 +267,22 @@ export function ConvertLeadModal({
   lead: Record<string, unknown> | null;
   onConverted?: () => void;
 }) {
+  const { displayName } = useAuth();
+  const { toast } = useToast();
   const [createDeal, setCreateDeal] = useState(true);
   const [dealName, setDealName] = useState("");
   const [amount, setAmount] = useState("");
   const [stage, setStage] = useState("Qualification");
   const [closing, setClosing] = useState(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10));
-  const [owner, setOwner] = useState("Demo User");
+  const [owner, setOwner] = useState(displayName || "Demo User");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (lead) {
       setDealName(`${lead.company || fullName(lead.first_name as string, lead.last_name as string)} - Deal`);
     }
-  }, [lead]);
+    if (displayName) setOwner(displayName);
+  }, [lead, displayName]);
 
   if (!lead) return null;
 
@@ -333,8 +336,10 @@ export function ConvertLeadModal({
       body: `Converted ${fullName(lead!.first_name as string, lead!.last_name as string)} to Contact/Account`,
       related_to_type: "lead",
       related_to_id: lead!.id as string,
+      owner_name: owner,
     });
     setSaving(false);
+    toast("Lead converted", "success");
     onConverted?.();
     onClose();
   }
@@ -505,21 +510,31 @@ export function ChangeOwnerModal({
   ownerField?: string;
   onDone?: () => void;
 }) {
-  const users = ["Demo User", "Alex Sales", "Sam Manager", "Jordan AE", "Riley Support"];
-  const [owner, setOwner] = useState("Demo User");
+  const { displayName } = useAuth();
+  const { toast } = useToast();
+  const users = [displayName, "Alex Sales", "Sam Manager", "Jordan AE", "Riley Support"].filter(Boolean) as string[];
+  const uniqueUsers = [...new Set(users)];
+  const [owner, setOwner] = useState(displayName || "Demo User");
   const [notify, setNotify] = useState(true);
   const [related, setRelated] = useState({ notes: true, attachments: true, activities: true });
 
+  useEffect(() => {
+    if (displayName) setOwner(displayName);
+  }, [displayName]);
+
   async function save() {
-    await supabase.from(table).update({ [ownerField]: owner }).in("id", recordIds);
+    const { error } = await supabase.from(table).update({ [ownerField]: owner }).in("id", recordIds);
+    if (error) return toast(error.message, "error");
     if (notify) {
       await supabase.from("activities").insert({
         activity_type: "owner",
         subject: "Owner changed",
         body: `Assigned ${recordIds.length} ${table} to ${owner}`,
         related_to_type: table,
+        owner_name: displayName,
       });
     }
+    toast("Owner updated", "success");
     onDone?.();
     onClose();
   }
@@ -540,7 +555,7 @@ export function ChangeOwnerModal({
       <p className="mb-3 text-sm text-gray-600">{recordIds.length} record(s) selected</p>
       <Field label="Change Owner">
         <select className="crm-input" value={owner} onChange={(e) => setOwner(e.target.value)}>
-          {users.map((u) => <option key={u}>{u}</option>)}
+          {uniqueUsers.map((u) => <option key={u}>{u}</option>)}
         </select>
       </Field>
       <div className="mt-4 space-y-2 text-sm">
